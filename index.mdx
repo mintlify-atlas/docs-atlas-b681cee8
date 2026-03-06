@@ -1,97 +1,105 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "BD-JB"
+description: "Blu-ray Disc Java exploit for PlayStation 4 firmware 9.00 to 12.50"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #e7e870 0%, #a98964 100%)',
+  padding: '3rem 2rem',
+  borderRadius: '4px',
+  color: '#000000',
+  marginBottom: '2rem'
+}}>
+  <h1 style={{
+    fontFamily: 'Arial, sans-serif',
+    fontWeight: 700,
+    fontSize: '48px',
+    marginBottom: '1rem',
+    color: '#000000'
+  }}>BD-JB</h1>
+  <p style={{
+    fontFamily: 'Arial, sans-serif',
+    fontSize: '24px',
+    fontWeight: 400,
+    marginBottom: '2rem',
+    color: '#000000'
+  }}>Blu-ray Disc Java exploit for PlayStation 4 firmware 9.00 to 12.50</p>
+  <p style={{
+    fontFamily: 'Arial, sans-serif',
+    fontSize: '14px',
+    fontWeight: 400,
+    color: '#000000'
+  }}>A sophisticated kernel exploit chain that achieves arbitrary read/write through AIO race conditions and memory corruption primitives.</p>
+</div>
 
-Get your documentation site up and running in minutes.
+## Get Started
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running with BD-JB in minutes
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Requirements" icon="list-check" href="/requirements">
+    Check system requirements and prerequisites
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Lapse ISO Guide" icon="disc-drive" href="/guides/lapse-iso">
+    Use the built-in Lapse payload
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="RemoteJarLoader" icon="network-wired" href="/guides/remotejarloader-iso">
+    Send custom JAR payloads
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Key Features
 
-Everything you need to create world-class documentation.
+<CardGroup cols={3}>
+  <Card title="BD-J Exploit" icon="shield-virus">
+    Leverages Blu-ray Disc Java for initial code execution
+  </Card>
+  <Card title="Kernel R/W" icon="memory">
+    Achieves arbitrary kernel read and write primitives
+  </Card>
+  <Card title="USB Payload Loading" icon="usb">
+    Automatically loads homebrew enablers from USB
+  </Card>
+  <Card title="Network Logging" icon="terminal">
+    Debug and monitor exploit execution remotely
+  </Card>
+  <Card title="AIO Race Conditions" icon="gauge-high">
+    Exploits asynchronous I/O timing vulnerabilities
+  </Card>
+  <Card title="Custom Payloads" icon="code">
+    Send and execute custom JAR payloads
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Supported Firmware
 
-## Need inspiration?
+<Note>
+BD-JB supports PlayStation 4 firmware versions 9.00 through 12.50.
+</Note>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Lapse Exploit" icon="bolt">
+    Firmware 9.00 - 12.02 with full AIO race condition support
+  </Card>
+  <Card title="Extended Support" icon="circle-check">
+    Up to firmware 12.50 with kernel exploit chain
+  </Card>
+</CardGroup>
+
+## Documentation
+
+<CardGroup cols={2}>
+  <Card title="Guides" icon="book" href="/guides/lapse-iso">
+    Step-by-step tutorials for all use cases
+  </Card>
+  <Card title="Technical Reference" icon="code-branch" href="/technical/overview">
+    Deep dive into exploit architecture and implementation
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/troubleshooting/common-issues">
+    Common issues and solutions
+  </Card>
+  <Card title="Development" icon="hammer" href="/development/build-system">
+    Build and customize BD-JB payloads
+  </Card>
+</CardGroup>

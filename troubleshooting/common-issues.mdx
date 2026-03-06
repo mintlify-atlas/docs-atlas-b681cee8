@@ -1,0 +1,198 @@
+---
+title: 'Common Issues'
+description: 'Solutions to frequently encountered problems when running BD-JB'
+---
+
+## Troubleshooting Guide
+
+This page covers common issues you may encounter when running the BD-JB exploit and their solutions.
+
+<Accordion title="Exploit fails to run">
+  **Symptoms:**
+  - Exploit does not load
+  - No notification appears
+  - Payload does not execute
+
+  **Solutions:**
+  1. **Restart your PS4 completely** before retrying the exploit
+     <Warning>
+       Do **not** simply reopen the BD-J app — stability will drop significantly. A full restart is required for optimal reliability.
+     </Warning>
+
+  2. Verify USB drive is inserted **before** inserting the Blu-ray disc
+  3. Check that your USB drive is formatted as **exFAT** or **FAT32**
+  4. Ensure `payload.bin` is at the root of your USB drive (not in a folder)
+  5. Verify HDCP is enabled in PS4 Settings → System → Enable HDCP
+  6. Turn off **"Disable Pop-ups while playing video"** in notification settings to see exploit notifications
+</Accordion>
+
+<Accordion title="Black screen issues">
+  **Symptoms:**
+  - Games show black screen on launch
+  - Game starts but display is blank
+
+  **Solution:**
+  Apply the AIO fixes to resolve black screen issues:
+
+  <Note>
+    If you're using **Lapse 1.2 or later**, AIO fixes are already included in the ISO. You only need to apply these fixes manually for Lapse 1.0, 1.1, and 1.1b.
+  </Note>
+
+  **For Lapse 1.0, 1.1, and 1.1b:**
+  1. Load `payload.bin` (GoldHEN or ps4-hen) normally from USB
+  2. Send `aiofix_network.elf` to HEN's BinLoader using network after HEN is initialized (port 9090)
+  3. Wait for "AIO patch completed" notification
+  4. You need to send this ELF file every time you run the Lapse exploit
+  5. Alternatively, convert the ELF to a plugin to load automatically when HEN starts
+
+  <Warning>
+    Do not use any other AIO-related fixes or plugins alongside this solution — they may conflict.
+  </Warning>
+
+  Learn more: [AIO Fixes Guide](/guides/aio-fixes)
+</Accordion>
+
+<Accordion title="Save data corruption">
+  **Symptoms:**
+  - Game save data becomes corrupted
+  - Unable to load saved games
+  - Save data warnings appear
+
+  **Solution:**
+  This issue is resolved by applying the AIO fixes. Follow the same steps as the "Black screen issues" solution above.
+
+  <Warning>
+    Save data corruption can result in permanent loss of game progress. Always back up your save data before running exploits.
+  </Warning>
+
+  For detailed instructions: [AIO Fixes Guide](/guides/aio-fixes)
+</Accordion>
+
+<Accordion title="Blu-ray disc not recognized">
+  **Symptoms:**
+  - PS4 does not detect the Blu-ray disc
+  - Disc icon does not appear
+  - "Unrecognized disc" error
+
+  **Solutions:**
+  1. **Verify disc burning quality:**
+     - Use high-quality BD-R media
+     - Burn at slower speeds (4x recommended)
+     - Use recommended burning software:
+       - Windows: [ImgBurn](https://www.imgburn.com)
+       - Linux: [K3b](https://apps.kde.org/k3b)
+       - macOS: [BD-SimpleBurn](https://github.com/C4ndyF1sh/BD-SimpleBurn)
+
+  2. **First-time Blu-ray activation required:**
+     If you've never used a Blu-ray disc on your PS4:
+     - **Disable Automatic Updates first** to avoid firmware upgrades
+     - Connect to the internet once to activate Blu-ray playback
+     - After activation, you can disconnect from the internet
+
+  3. **Clean the disc and Blu-ray drive:**
+     - Wipe the disc with a microfiber cloth
+     - Ensure no fingerprints or dust on the disc surface
+
+  4. **Try a different Blu-ray disc:**
+     - Some disc brands may have compatibility issues
+     - Verify your BD-R media is compatible with PS4
+</Accordion>
+
+<Accordion title="USB payload not loading">
+  **Symptoms:**
+  - `payload.bin` does not execute
+  - No HEN initialization notification
+  - BinLoader does not respond
+
+  **Solutions:**
+  1. **Verify USB drive format:**
+     - Must be **exFAT** or **FAT32**
+     - Reformat if necessary
+
+  2. **Check payload file:**
+     - File must be named exactly `payload.bin`
+     - Must be at the root of the USB drive (not in a folder)
+     - Use a valid homebrew enabler (GoldHEN or ps4-hen)
+     - Download payload from a trusted source
+
+  3. **Verify insertion order:**
+     - Insert USB drive **first**
+     - Then insert the Blu-ray disc
+
+  4. **Try a different USB port:**
+     - Some USB ports may have issues
+     - Try both front and back USB ports
+
+  5. **Check USB drive compatibility:**
+     - Some USB 3.0 drives may have issues
+     - Try a USB 2.0 drive if problems persist
+
+  <Note>
+    For **Lapse.iso**: `payload.bin` loads from USB → `/data/payload.bin` automatically.
+    
+    For **RemoteJarLoader.iso**: Send `Lapse.jar` to port 9025 first to enable automatic USB payload loading.
+  </Note>
+</Accordion>
+
+<Accordion title="Network connectivity issues">
+  **Symptoms:**
+  - Cannot send JAR payload to RemoteJarLoader
+  - Cannot send AIO fixes via network
+  - BinLoader not responding on port 9020 or 9090
+
+  **Solutions:**
+  1. **Verify network connection:**
+     - PS4 and PC must be on the same network
+     - Check PS4's IP address in Settings → Network → View Connection Status
+
+  2. **Check port availability:**
+     - **Lapse.iso**: BinLoader listens on port **9020** (always listening)
+     - **RemoteJarLoader.iso**: Listens on port **9025** for JAR payloads
+     - **HEN BinLoader**: Listens on port **9090** (for AIO fixes)
+     - Ensure no firewall is blocking these ports
+
+  3. **Verify payload sender tool:**
+     - Use correct IP address of your PS4
+     - Use correct port number for your ISO type
+     - Try a different payload sending tool
+
+  4. **Test with logging:**
+     - Run `log_client.py` (listens on port **18194**)
+     - Launch the BD-J app to see debug logs
+     - Check for network-related errors
+
+  5. **Restart network services:**
+     - Go to Settings → Network → Test Internet Connection on PS4
+     - Restart your router if necessary
+</Accordion>
+
+<Accordion title="Notifications not appearing">
+  **Symptoms:**
+  - No notifications show during exploit execution
+  - Cannot tell if exploit succeeded
+
+  **Solution:**
+  Turn off **"Disable Pop-ups while playing video"** in notification settings:
+  1. Go to Settings → Notifications
+  2. Find "Disable Pop-ups while playing video"
+  3. **Disable** this option
+  4. Restart the BD-J app
+
+  You should now see notifications when:
+  - Payload is loaded
+  - HEN is initialized
+  - AIO patches are applied
+</Accordion>
+
+## Still Having Issues?
+
+If you're still experiencing problems after trying these solutions:
+
+1. Check the [FAQ](/troubleshooting/faq) for additional information
+2. Review the [Requirements](/requirements) guide to verify all prerequisites are met
+3. Make sure you're using the correct ISO type for your needs
+4. Consider trying the other ISO type (Lapse vs RemoteJarLoader)
+
+<Note>
+  Always perform a full PS4 restart between exploit attempts for best results. Simply reopening the BD-J app will significantly reduce stability.
+</Note>

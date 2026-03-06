@@ -1,0 +1,248 @@
+---
+title: 'Build System'
+description: 'Build process and compilation instructions for BD-JB'
+---
+
+## Overview
+
+BD-JB uses a Makefile-based build system that compiles Java 1.4 code into BD-J compatible JARs and packages them into Blu-ray ISO images. The build process requires the BDJ-SDK and Java 8.
+
+## Prerequisites
+
+### Required Tools
+
+- **BDJ-SDK** - Available at [john-tornblom/bdj-sdk](https://github.com/john-tornblom/bdj-sdk)
+- **ps4-payload-sdk** - Available at [ps4-payload-dev/sdk](https://github.com/ps4-payload-dev/sdk)
+- **Java 8 (JDK 8)** - Required for Java 1.4 compilation
+- **Enhanced Stubs** - Required JAR files from PS4 system:
+  - `rt.jar` and `bdjstack.jar` from `/system_ex/app/NPXS20113`
+
+### Environment Variables
+
+```bash
+# Set BDJ-SDK home directory
+export BDJSDK_HOME=/path/to/bdj-sdk
+
+# Set Java 8 home directory
+export JAVA8_HOME=$BDJSDK_HOME/host/jdk8
+```
+
+## Main Build Process
+
+<Steps>
+  <Step title="Set up directory structure">
+    The build system expects the following structure:
+    ```
+    bd-jb/
+    ├── Makefile
+    ├── src/
+    │   └── org/bdj/
+    ├── payloads/
+    │   ├── helloworld/
+    │   └── lapse/
+    └── BDMV/
+    ```
+  </Step>
+
+  <Step title="Configure Makefile variables">
+    Key variables from the root `Makefile`:
+    ```makefile
+    DISC_LABEL := RemoteJarLoader
+    BDJSDK_HOME ?= $(MAKEFILE_DIR)/../../
+    BDSIGNER := $(BDJSDK_HOME)/host/bin/bdsigner
+    MAKEFS := $(BDJSDK_HOME)/host/bin/makefs
+    JAVA8_HOME ?= $(BDJSDK_HOME)/host/jdk8
+    JAVAC := $(JAVA8_HOME)/bin/javac
+    JAR := $(JAVA8_HOME)/bin/jar
+    ```
+  </Step>
+
+  <Step title="Compile Java sources">
+    Java sources are compiled with Java 1.4 compatibility:
+    ```bash
+    javac -Xlint:-options -source 1.4 -target 1.4 \
+      -cp $CLASSPATH \
+      src/org/bdj/*.java
+    ```
+    
+    The classpath includes:
+    - `enhanced-stubs.zip`
+    - `bdjstack.jar`
+    - `rt.jar`
+  </Step>
+
+  <Step title="Create JAR file">
+    Package compiled classes into a JAR:
+    ```bash
+    jar cf discdir/BDMV/JAR/00000.jar -C src/ .
+    ```
+  </Step>
+
+  <Step title="Sign the JAR">
+    Sign the JAR with BD-J keystore:
+    ```bash
+    bdsigner -keystore $BDJSDK_HOME/resources/sig.ks \
+      discdir/BDMV/JAR/00000.jar
+    ```
+  </Step>
+
+  <Step title="Create Blu-ray ISO">
+    Generate the final ISO image:
+    ```bash
+    makefs -m 16m -t udf \
+      -o T=bdre,v=2.50,L=RemoteJarLoader \
+      RemoteJarLoader.iso discdir
+    ```
+  </Step>
+</Steps>
+
+## Building Payload JARs
+
+Payload JARs (like HelloWorld or Lapse) have their own Makefiles in subdirectories.
+
+### HelloWorld Example
+
+Located in `payloads/helloworld/`:
+
+```makefile
+JAR_NAME := helloworld.jar
+CLASSPATH := $(BDJSDK_HOME)/target/lib/enhanced-stubs.zip:\
+             $(BDJSDK_HOME)/target/lib/bdjstack.jar:\
+             $(BDJSDK_HOME)/target/lib/rt.jar:\
+             ../../discdir/BDMV/JAR/00000.jar
+SOURCES := $(wildcard src/org/bdj/external/*.java)
+JFLAGS := -Xlint:-options -source 1.4 -target 1.4
+
+$(JAR_NAME): $(SOURCES) manifest.txt
+	$(JAVAC) $(JFLAGS) -cp $(CLASSPATH) $(SOURCES)
+	$(JAR) cfm $@ manifest.txt -C src/ .
+```
+
+### Manifest Requirements
+
+Payload JARs require a `manifest.txt` file:
+
+```
+Main-Class: org.bdj.external.HelloWorld
+```
+
+## BDJO File Configuration
+
+The BDJO file in `BDMV/BDJO/00000.bdjo` defines the BD-J application entry point. Replace this file when building custom payloads.
+
+## Complete Build Commands
+
+### Build Main ISO
+
+```bash
+# From project root
+make clean
+make all
+```
+
+This produces `RemoteJarLoader.iso` or `Lapse.iso` depending on configuration.
+
+### Build Payload JAR
+
+```bash
+# From payload directory
+cd payloads/helloworld
+make clean
+make
+```
+
+### Clean Build Artifacts
+
+```bash
+make clean
+```
+
+Removes:
+- Compiled `.class` files
+- Generated JAR files
+- ISO images
+- Temporary disc directory
+
+## Disc Structure
+
+The build system creates this structure:
+
+```
+discdir/
+├── BDMV/
+│   ├── AUXDATA/
+│   ├── BACKUP/
+│   ├── BDJO/
+│   │   └── 00000.bdjo
+│   ├── CLIPINF/
+│   ├── JAR/
+│   │   └── 00000.jar (signed)
+│   ├── META/
+│   ├── PLAYLIST/
+│   └── STREAM/
+└── CERTIFICATE/
+```
+
+## Code Signing
+
+BD-J applications must be signed to run on PS4:
+
+```bash
+bdsigner -keystore $BDJSDK_HOME/resources/sig.ks discdir/BDMV/JAR/00000.jar
+```
+
+The signing process:
+1. Uses the BDJ-SDK keystore (`sig.ks`)
+2. Generates `META-INF/` directory with signatures
+3. Required for PS4 BD-J execution
+
+## Common Build Issues
+
+### Java Version Mismatch
+
+Ensure Java 8 is used:
+```bash
+java -version  # Should show 1.8.x
+```
+
+### Missing Dependencies
+
+Install required JAR files:
+- Extract `rt.jar` and `bdjstack.jar` from PS4's `/system_ex/app/NPXS20113`
+- Place in `$BDJSDK_HOME/target/lib/`
+
+### Classpath Issues
+
+Verify all JAR files exist:
+```bash
+ls -l $BDJSDK_HOME/target/lib/
+```
+
+## Advanced Build Options
+
+### Custom Disc Label
+
+```makefile
+DISC_LABEL := MyCustomLabel
+```
+
+### ISO Type Selection
+
+For Lapse payload (built-in):
+```bash
+# Include Lapse.jar in resources
+cp payloads/lapse/lapse.jar src/org/bdj/payload.jar
+make all
+```
+
+For RemoteJarLoader (network):
+```bash
+# Don't include payload.jar
+make all
+```
+
+## References
+
+- [BDJ-SDK Documentation](https://github.com/john-tornblom/bdj-sdk)
+- [ps4-payload-sdk](https://github.com/ps4-payload-dev/sdk)
+- BD-J specification (Java TV API)

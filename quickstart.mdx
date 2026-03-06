@@ -1,80 +1,228 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick Start"
+description: "Get BD-JB running on your PS4 in minutes"
 ---
 
-## Get started in three steps
-
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+Get the BD-JB exploit up and running on your PlayStation 4. This guide covers both Lapse.iso (automatic) and RemoteJarLoader.iso (network-based) workflows.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Before starting, make sure you've reviewed the [Requirements](/requirements) page and have everything ready.
 </Note>
+
+## Choose Your Workflow
+
+BD-JB provides two ISO options:
+
+<CardGroup cols={2}>
+  <Card title="Lapse.iso" icon="disc-drive">
+    **Automatic mode** - Loads payload from USB automatically
+  </Card>
+  <Card title="RemoteJarLoader.iso" icon="network-wired">
+    **Network mode** - Send custom JAR payloads over the network
+  </Card>
+</CardGroup>
+
+---
+
+## Workflow 1: Using Lapse.iso (Recommended)
+
+The easiest way to run BD-JB with automatic payload loading from USB.
+
+<Steps>
+  <Step title="Prepare Your USB Drive">
+    1. Format your USB drive as **exFAT** or **FAT32**
+    2. Download a homebrew enabler (GoldHEN or ps4-hen)
+    3. Place it at the root of the USB drive
+    4. Rename the file to exactly `payload.bin`
+
+    ```bash
+    # USB drive structure:
+    /payload.bin
+    ```
+  </Step>
+
+  <Step title="Burn Lapse.iso to Blu-ray">
+    Download Lapse.iso from the [releases page](https://github.com/Gezine/BD-JB-1250/releases) and burn it to a Blu-ray disc.
+
+    **Tools by platform:**
+    - Windows: [ImgBurn](https://www.imgburn.com)
+    - Linux: [K3b](https://apps.kde.org/k3b)
+    - macOS: [BD-SimpleBurn](https://github.com/C4ndyF1sh/BD-SimpleBurn)
+
+    <Tip>
+    See the [Burning Blu-ray Discs](/guides/burning-iso) guide for detailed instructions.
+    </Tip>
+  </Step>
+
+  <Step title="Configure PS4 Settings">
+    **Required settings:**
+    1. **Enable HDCP** in Settings → System → Enable HDCP
+    2. **Disable automatic updates** in Settings → System Software Update Settings
+    3. **Disable "Disable Pop-ups while playing video"** in Settings → Notifications
+
+    <Warning>
+    If this is your first time using Blu-ray discs, you need to activate Blu-ray playback by connecting to the internet once. Make sure automatic updates are disabled first!
+    </Warning>
+  </Step>
+
+  <Step title="Run the Exploit">
+    1. **Insert the USB drive first** (with payload.bin)
+    2. **Insert the Lapse.iso Blu-ray disc**
+    3. The PS4 will automatically start the BD-J application
+    4. Wait for the exploit to execute (you'll see notifications)
+    5. When successful, your payload will be loaded automatically
+
+    <Note>
+    The BinLoader listens on port **9020** for additional payloads if needed.
+    </Note>
+  </Step>
+
+  <Step title="Verify Success">
+    You should see:
+    - Exploit stage notifications on your PS4
+    - Your homebrew enabler running (GoldHEN/ps4-hen)
+    - Access to homebrew applications
+
+    <Tip>
+    If the exploit completes but payload.bin doesn't load, you can send it manually to port 9020 using the `payload_sender.py` script.
+    </Tip>
+  </Step>
+</Steps>
+
+<Warning>
+**If the exploit fails:** Perform a **full PS4 restart** before retrying. Do NOT simply reopen the BD-J app - stability will drop significantly.
+</Warning>
+
+---
+
+## Workflow 2: Using RemoteJarLoader.iso
+
+For advanced users who want to send custom JAR payloads or test development builds.
+
+<Steps>
+  <Step title="Burn RemoteJarLoader.iso">
+    Download RemoteJarLoader.iso from the releases and burn it to a Blu-ray disc using the same tools as Lapse.iso.
+  </Step>
+
+  <Step title="Configure PS4 and Network">
+    1. Configure PS4 settings (same as Lapse workflow above)
+    2. Connect PS4 to your local network
+    3. Note your PS4's IP address (Settings → Network → View Connection Status)
+  </Step>
+
+  <Step title="Insert Disc and Start">
+    1. Insert the RemoteJarLoader.iso Blu-ray disc
+    2. The BD-J app will start and listen on port **9025** for JAR payloads
+    3. You'll see a notification that the loader is ready
+  </Step>
+
+  <Step title="Send a JAR Payload">
+    From your computer on the same network, send a JAR payload:
+
+    ```bash payload_sender.py
+    python payload_sender.py Lapse.jar <PS4_IP> 9025
+    ```
+
+    Replace `<PS4_IP>` with your PS4's IP address.
+
+    <Tip>
+    To get the same behavior as Lapse.iso, send the **Lapse.jar** file from the repository.
+    </Tip>
+  </Step>
+
+  <Step title="Exploit Execution">
+    Once the JAR is received:
+    1. The exploit will execute automatically
+    2. You'll see stage notifications
+    3. BinLoader will listen on port **9020** for ELF payloads
+
+    Send your payload.bin if using Lapse.jar:
+    ```bash
+    python payload_sender.py payload.bin <PS4_IP> 9020
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Optional: Enable Debug Logging
+
+For troubleshooting or development, enable network logging:
+
+<Steps>
+  <Step title="Start the Log Client">
+    On your computer, run:
+    ```bash
+    python log_client.py <PS4_IP>
+    ```
+    This listens on port **18194** for log messages.
+  </Step>
+
+  <Step title="Run the Exploit">
+    Logs will appear in real-time as the exploit executes, showing each stage's progress and any errors.
+  </Step>
+</Steps>
+
+See the [Logging Guide](/guides/logging) for more details.
+
+---
+
+## Port Reference
+
+| Port  | Purpose                          |
+|-------|----------------------------------|
+| 9025  | RemoteJarLoader (receive JARs)   |
+| 9020  | BinLoader (receive ELF payloads) |
+| 18194 | RemoteLogger (debug logs)        |
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Exploit doesn't start">
+    - Verify HDCP is enabled
+    - Check that Blu-ray playback is activated
+    - Ensure disc is burned correctly
+    - Try a different Blu-ray disc
+  </Accordion>
+
+  <Accordion title="No notifications appear">
+    Make sure "Disable Pop-ups while playing video" is turned **OFF** in Notification settings.
+  </Accordion>
+
+  <Accordion title="Exploit fails midway">
+    Perform a **full PS4 restart** (not just closing the app) and try again. The exploit uses race conditions and may need multiple attempts.
+  </Accordion>
+
+  <Accordion title="USB payload doesn't load">
+    - Verify USB drive is formatted as exFAT or FAT32
+    - Check file is named exactly `payload.bin`
+    - Try sending payload manually to port 9020
+  </Accordion>
+
+  <Accordion title="Black screen or game crashes">
+    Apply the [AIO fixes](/guides/aio-fixes) to resolve game compatibility issues (only needed for Lapse 1.0-1.1b).
+  </Accordion>
+</AccordionGroup>
+
+For more help, see [Common Issues](/troubleshooting/common-issues) and [FAQ](/troubleshooting/faq).
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Lapse.iso Guide" icon="book" href="/guides/lapse-iso">
+    Detailed guide for Lapse.iso usage
+  </Card>
+  <Card title="RemoteJarLoader Guide" icon="network-wired" href="/guides/remotejarloader-iso">
+    Advanced network payload delivery
+  </Card>
+  <Card title="Technical Reference" icon="code" href="/technical/overview">
+    Understand how the exploit works
+  </Card>
+  <Card title="Development" icon="hammer" href="/development/build-system">
+    Build custom BD-J payloads
+  </Card>
+</CardGroup>

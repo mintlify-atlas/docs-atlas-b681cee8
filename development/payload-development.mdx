@@ -1,0 +1,434 @@
+---
+title: 'Payload Development'
+description: 'Creating custom BD-J payloads for PS4'
+---
+
+## Overview
+
+BD-J payloads are Java applications that run within the PlayStation 4's Blu-ray Java environment. You can create custom payloads that leverage the exploit primitives provided by the BD-JB framework.
+
+## Payload Types
+
+BD-JB supports two payload loading mechanisms:
+
+### InternalJarLoader
+
+Loads a JAR file embedded as a resource within the main BD-J application.
+
+- **Use case**: Single-purpose ISOs with built-in functionality
+- **Example**: `Lapse.iso` with Lapse payload built-in
+- **Resource path**: `/org/bdj/payload.jar`
+
+```java
+// InternalJarLoader extracts and runs embedded JAR
+InternalJarLoader loader = new InternalJarLoader();
+new Thread(loader).start();
+```
+
+### RemoteJarLoader
+
+Accepts JAR files over the network on port 9025.
+
+- **Use case**: Development and testing of multiple payloads
+- **Example**: `RemoteJarLoader.iso`
+- **Network protocol**: TCP on port 9025
+
+```java
+// RemoteJarLoader listens for JAR uploads
+RemoteJarLoader loader = new RemoteJarLoader();
+new Thread(loader).start();
+```
+
+## HelloWorld Example
+
+The simplest payload demonstrates basic BD-J capabilities.
+
+### Source Code
+
+Located at `~/workspace/source/payloads/helloworld/src/org/bdj/external/HelloWorld.java`:
+
+```java
+package org.bdj.external;
+
+import org.bdj.Status;
+import org.bdj.api.NativeInvoke;
+
+public class HelloWorld {
+    public static void main(String[] args) {
+        Status.println("Hello from external JAR!");
+        NativeInvoke.sendNotificationRequest("Hello World");
+    }
+}
+```
+
+### Manifest File
+
+Create `manifest.txt` in the payload directory:
+
+```
+Main-Class: org.bdj.external.HelloWorld
+```
+
+### Makefile
+
+```makefile
+JAR_NAME := helloworld.jar
+BDJSDK_HOME ?= $(MAKEFILE_DIR)/../../../../
+JAVA8_HOME ?= $(BDJSDK_HOME)/host/jdk8
+JAVAC := $(JAVA8_HOME)/bin/javac
+JAR := $(JAVA8_HOME)/bin/jar
+
+CLASSPATH := $(BDJSDK_HOME)/target/lib/enhanced-stubs.zip:\
+             $(BDJSDK_HOME)/target/lib/bdjstack.jar:\
+             $(BDJSDK_HOME)/target/lib/rt.jar:\
+             ../../discdir/BDMV/JAR/00000.jar
+
+SOURCES := $(wildcard src/org/bdj/external/*.java)
+JFLAGS := -Xlint:-options -source 1.4 -target 1.4
+
+all: $(JAR_NAME)
+
+$(JAR_NAME): $(SOURCES) manifest.txt
+	$(JAVAC) $(JFLAGS) -cp $(CLASSPATH) $(SOURCES)
+	$(JAR) cfm $@ manifest.txt -C src/ .
+
+clean:
+	rm -f src/org/bdj/external/*.class $(JAR_NAME)
+```
+
+### Build and Test
+
+<Steps>
+  <Step title="Build the JAR">
+    ```bash
+    cd payloads/helloworld
+    make
+    ```
+  </Step>
+
+  <Step title="Send to PS4">
+    Using RemoteJarLoader ISO:
+    ```bash
+    cat helloworld.jar | nc <PS4_IP> 9025
+    ```
+  </Step>
+
+  <Step title="Verify output">
+    Check RemoteLogger on port 18194:
+    ```bash
+    python log_client.py
+    ```
+  </Step>
+</Steps>
+
+## JAR Structure
+
+A complete payload JAR has this structure:
+
+```
+helloworld.jar
+├── META-INF/
+│   └── MANIFEST.MF
+└── org/
+    └── bdj/
+        └── external/
+            └── HelloWorld.class
+```
+
+## Using BD-JB APIs
+
+Payloads can access exploit primitives from the main BD-J application:
+
+### Status Output
+
+```java
+import org.bdj.Status;
+
+Status.println("Debug message");
+Status.printStackTrace("Error: ", exception);
+```
+
+### Native API Access
+
+```java
+import org.bdj.api.API;
+import org.bdj.api.Buffer;
+
+API api = API.getInstance();
+
+// Allocate memory
+Buffer buf = new Buffer(1024);
+buf.putInt(0, 0x12345678);
+int value = buf.getInt(0);
+
+// Call native functions
+long result = api.call(functionAddress, arg1, arg2);
+```
+
+### Helper Functions
+
+```java
+import org.bdj.external.Helper;
+
+// Socket operations
+int socket = Helper.createUdpSocket();
+Helper.setSockOpt(socket, Helper.SOL_SOCKET, 
+                  Helper.SO_REUSEADDR, buffer, 4);
+
+// System calls
+long result = Helper.syscall(Helper.SYS_GETPID);
+
+// AIO operations
+Buffer requests = Helper.createAioRequests(3);
+Helper.aioSubmitCmd(Helper.AIO_CMD_READ, 
+                    requests.address(), 3, 
+                    Helper.AIO_PRIORITY_HIGH, ids.address());
+```
+
+## Advanced Payload: Lapse Exploit
+
+The Lapse payload is a complete kernel exploitation chain.
+
+### Main Entry Point
+
+```java
+package org.bdj.external;
+
+public class Lapse {
+    public static void main(String[] args) {
+        // Stage 0: Setup
+        if (!performSetup()) {
+            Status.println("Setup failed");
+            return;
+        }
+        
+        // Stage 1: Double-free AIO
+        int[] aliasedPair = executeStage1();
+        if (aliasedPair == null) return;
+        
+        // Stage 2: Leak kernel addresses
+        if (!executeStage2(aliasedPair)) return;
+        
+        // Stage 3: Double free reqs1
+        int[] pktoptsPair = executeStage3(aliasedPair[0]);
+        if (pktoptsPair == null) return;
+        
+        // Stage 4: Kernel R/W
+        if (!executeStage4(pktoptsPair, ...)) return;
+        
+        // Stage 5: Post-exploitation
+        Kernel.postExploitationPS4();
+        
+        // Load binary payloads
+        BinLoader.start();
+    }
+}
+```
+
+### Stage Implementation
+
+Each stage is a separate method:
+
+```java
+public static boolean performSetup() {
+    // Pin to CPU core
+    Helper.pinToCore(MAIN_CORE);
+    Helper.setRealtimePriority(MAIN_RTPRIO);
+    
+    // Block AIO workers
+    Buffer blockReqs = new Buffer(0x28 * NUM_WORKERS);
+    Helper.aioSubmitCmd(Helper.AIO_CMD_READ, ...);
+    
+    return true;
+}
+
+public static int[] executeStage1() {
+    // Race condition to trigger double-free
+    // Returns aliased socket pair
+    return aliasedPair;
+}
+```
+
+## Loading Binary Payloads
+
+The BinLoader class loads ELF payloads:
+
+```java
+import org.bdj.external.BinLoader;
+
+// Start BinLoader (listens on port 9020)
+BinLoader.start();
+```
+
+### Embedded ELF Payloads
+
+Load ELF from resources:
+
+```java
+byte[] elfData = loadResourcePayload("/org/bdj/external/payload.elf");
+BinLoader.loadFromData(elfData);
+BinLoader.run();
+BinLoader.waitForPayloadToExit();
+```
+
+### Network ELF Payloads
+
+Send ELF over network:
+
+```bash
+cat payload.elf | nc <PS4_IP> 9020
+```
+
+## Code Signing
+
+All JAR files must be properly signed, but external payloads loaded via RemoteJarLoader don't need separate signing - they inherit the security context.
+
+## Classpath Requirements
+
+Payloads need access to BD-JB classes:
+
+```makefile
+CLASSPATH := $(BDJSDK_HOME)/target/lib/enhanced-stubs.zip:\
+             $(BDJSDK_HOME)/target/lib/bdjstack.jar:\
+             $(BDJSDK_HOME)/target/lib/rt.jar:\
+             ../../discdir/BDMV/JAR/00000.jar  # Main BD-J app
+```
+
+The main JAR (`00000.jar`) provides:
+- `org.bdj.Status`
+- `org.bdj.api.*` (API, Buffer, etc.)
+- `org.bdj.external.Helper`
+- `org.bdj.external.Kernel`
+- `org.bdj.external.BinLoader`
+
+## Java 1.4 Compatibility
+
+BD-J requires Java 1.4 syntax:
+
+<CodeGroup>
+```java Java 1.4 (Correct)
+// No generics
+Vector list = new Vector();
+list.addElement("item");
+
+// No for-each loops
+for (int i = 0; i < array.length; i++) {
+    process(array[i]);
+}
+
+// No autoboxing
+Integer value = new Integer(42);
+```
+
+```java Java 5+ (Incorrect)
+// These won't compile with -source 1.4
+Vector<String> list = new Vector<String>();
+for (String item : list) {
+    process(item);
+}
+Integer value = 42;  // Autoboxing
+```
+</CodeGroup>
+
+## File Organization
+
+Recommended payload structure:
+
+```
+payloads/
+└── mypayload/
+    ├── Makefile
+    ├── manifest.txt
+    └── src/
+        └── org/
+            └── bdj/
+                └── external/
+                    └── MyPayload.java
+```
+
+## Testing Workflow
+
+<Steps>
+  <Step title="Build main ISO">
+    ```bash
+    make all  # Creates RemoteJarLoader.iso
+    ```
+  </Step>
+
+  <Step title="Burn to Blu-ray disc">
+    Use ImgBurn (Windows), K3b (Linux), or BD-SimpleBurn (macOS)
+  </Step>
+
+  <Step title="Start log client">
+    ```bash
+    python log_client.py
+    ```
+  </Step>
+
+  <Step title="Insert disc on PS4">
+    Wait for BD-J app to start and listen on port 9025
+  </Step>
+
+  <Step title="Send payload">
+    ```bash
+    cd payloads/mypayload
+    make
+    cat mypayload.jar | nc <PS4_IP> 9025
+    ```
+  </Step>
+
+  <Step title="Monitor output">
+    Check log_client.py for Status.println() output
+  </Step>
+</Steps>
+
+## Debugging Tips
+
+### Network Logging
+
+All `Status.println()` output goes to RemoteLogger (port 18194):
+
+```python
+# log_client.py
+import socket
+
+s = socket.socket()
+s.bind(('0.0.0.0', 18194))
+s.listen(1)
+conn, addr = s.accept()
+while True:
+    data = conn.recv(1024)
+    if not data: break
+    print(data.decode(), end='')
+```
+
+### Error Handling
+
+Wrap exploit stages in try-catch:
+
+```java
+try {
+    if (!performSetup()) {
+        Status.println("Setup failed");
+        return;
+    }
+} catch (Exception e) {
+    Status.printStackTrace("Error: ", e);
+}
+```
+
+### Notification Messages
+
+Display messages on PS4:
+
+```java
+import org.bdj.api.NativeInvoke;
+
+NativeInvoke.sendNotificationRequest("Exploit succeeded!");
+```
+
+## References
+
+- [BDJ-SDK Documentation](https://github.com/john-tornblom/bdj-sdk)
+- [PS4 Lapse Exploit](https://github.com/Al-Azif/psfree-lapse)
+- [Remote Lua Loader](https://github.com/shahrilnet/remote_lua_loader)

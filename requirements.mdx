@@ -1,0 +1,263 @@
+---
+title: Requirements
+description: Hardware, firmware, and software requirements for BD-JB exploit
+---
+
+# Requirements
+
+Before running the BD-JB exploit, make sure you have everything you need. This page covers hardware requirements, firmware compatibility, system settings, and necessary tools.
+
+---
+
+## Firmware Compatibility
+
+BD-JB supports PlayStation 4 consoles running firmware versions **9.00 through 12.50**.
+
+<Note>
+  **Important**: The Lapse exploit (automatic USB payload loading) only works on firmware 9.00-12.02. Firmware 12.50 requires using RemoteJarLoader with custom JAR payloads.
+</Note>
+
+| Firmware Version | Lapse.iso Support | RemoteJarLoader.iso Support |
+|------------------|-------------------|--------------------------|
+| 9.00 - 12.02 | ✅ Yes | ✅ Yes |
+| 12.50 | ❌ No | ✅ Yes |
+| 12.52+ | ❌ No | ❌ No |
+
+<Warning>
+  BD-JB does **not** work on PlayStation 5. This exploit is exclusively for PS4 consoles.
+</Warning>
+
+### How to Check Your Firmware Version
+
+On your PS4:
+1. Go to **Settings → System → System Information**
+2. Look for **System Software** version
+3. Verify it's between 9.00 and 12.50
+
+---
+
+## Hardware Requirements
+
+<AccordionGroup>
+  <Accordion title="PlayStation 4 Console">
+    - Any PS4 model (Original, Slim, or Pro)
+    - Running firmware 9.00-12.50
+    - With a working Blu-ray drive
+    
+    <Warning>
+      This exploit will **not** work on PlayStation 5.
+    </Warning>
+  </Accordion>
+  
+  <Accordion title="Blu-ray Disc">
+    - At least one blank Blu-ray disc (BD-R or BD-RE)
+    - BD-R (recordable, single use) or BD-RE (rewritable, multiple uses)
+    - Single-layer (25GB) is sufficient
+    
+    <Note>
+      BD-RE discs are recommended if you want to test different versions or update the exploit later.
+    </Note>
+  </Accordion>
+  
+  <Accordion title="Blu-ray Burner">
+    - A Blu-ray disc burner (external or internal)
+    - Compatible with your computer (Windows, Linux, or macOS)
+    - Capable of burning ISO images to Blu-ray discs
+    
+    <Note>
+      Standard DVD burners will **not** work. You specifically need a Blu-ray burner.
+    </Note>
+  </Accordion>
+  
+  <Accordion title="USB Drive (for Lapse.iso)">
+    Required if using **Lapse.iso** workflow:
+    
+    - Any USB 2.0 or 3.0 flash drive
+    - Minimum 1GB capacity
+    - Formatted as **exFAT** or **FAT32**
+    
+    <Note>
+      NTFS is **not** supported by PS4. Make sure to format as exFAT or FAT32.
+    </Note>
+  </Accordion>
+  
+  <Accordion title="Computer with Network Access">
+    Required for:
+    
+    - Burning ISO files to Blu-ray discs
+    - Sending JAR payloads (if using RemoteJarLoader)
+    - Viewing logs (optional)
+    
+    Must be on the **same network** as your PS4 for network-based features.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Software Requirements
+
+### Disc Burning Software
+
+Choose the appropriate tool for your operating system:
+
+| Operating System | Recommended Tool | Download Link |
+|------------------|------------------|---------------|
+| **Windows** | ImgBurn | [imgburn.com](https://www.imgburn.com) |
+| **Linux** | K3b | [apps.kde.org/k3b](https://apps.kde.org/k3b) |
+| **macOS** | BD-SimpleBurn | [github.com/C4ndyF1sh/BD-SimpleBurn](https://github.com/C4ndyF1sh/BD-SimpleBurn) |
+
+<Warning>
+  Make sure to burn the ISO as a **disc image**, not as a data file. The disc must be bootable.
+</Warning>
+
+### Python (for sending payloads)
+
+If using **RemoteJarLoader** or sending additional payloads over the network:
+
+- Python 3.x installed on your computer
+- Included `payload_sender.py` script from the BD-JB release
+
+Example usage:
+```bash
+python payload_sender.py Lapse.jar 192.168.1.100 9025
+```
+
+### Homebrew Payload
+
+You'll need a homebrew enabler payload such as:
+
+- **GoldHEN** (recommended)
+- **ps4-hen**
+
+Rename your chosen payload to `payload.bin` and place it on your USB drive (for Lapse.iso) or send it via network after the exploit runs.
+
+---
+
+## PS4 System Settings
+
+Before running the exploit, configure these settings on your PS4:
+
+<Steps>
+  <Step title="Enable HDCP">
+    1. Go to **Settings → System → HDCP**
+    2. **Enable HDCP**
+    
+    <Note>
+      HDCP is required for Blu-ray playback on PS4.
+    </Note>
+  </Step>
+  
+  <Step title="Disable Automatic Updates">
+    1. Go to **Settings → System → Automatic Downloads and Updates**
+    2. **Uncheck all automatic update options**
+    
+    <Warning>
+      This is critical! An automatic firmware update will patch the exploit and prevent BD-JB from working.
+    </Warning>
+  </Step>
+  
+  <Step title="Configure Notification Settings">
+    1. Go to **Settings → Notifications → Pop-Up Notifications**
+    2. **Turn off "Disable Pop-ups while playing video"**
+    
+    <Note>
+      This allows you to see notifications from the exploit, confirming it's running successfully.
+    </Note>
+  </Step>
+  
+  <Step title="Activate Blu-ray Playback (if needed)">
+    If you've never used a Blu-ray disc on your PS4:
+    
+    1. **Disable automatic updates first** (see step 2 above)
+    2. Connect your PS4 to the internet
+    3. Insert any commercial Blu-ray disc to activate playback
+    4. Disconnect from the internet after activation
+    
+    <Warning>
+      Only connect to the internet if Blu-ray playback is not yet activated. Make sure automatic updates are disabled before connecting!
+    </Warning>
+  </Step>
+</Steps>
+
+---
+
+## Network Configuration
+
+### For RemoteJarLoader
+
+If using **RemoteJarLoader.iso**, ensure:
+
+- PS4 is connected to your local network (Wi-Fi or Ethernet)
+- PS4 and your computer are on the **same network**
+- Port **9025** is accessible (not blocked by firewall)
+- You know your PS4's IP address
+
+#### Finding Your PS4's IP Address
+
+1. Go to **Settings → Network → View Connection Status**
+2. Note the **IP Address** (e.g., 192.168.1.100)
+
+### For BinLoader (after exploit runs)
+
+After the exploit runs successfully:
+
+- Port **9020** will be open for additional payloads
+- Use `payload_sender.py` to send `.bin` files:
+
+```bash
+python payload_sender.py payload.bin 192.168.1.100 9020
+```
+
+### For Logging (Optional)
+
+If you want to view real-time logs from the exploit:
+
+- Port **18194** must be accessible on your computer
+- Run `log_client.py` before inserting the disc:
+
+```bash
+python log_client.py
+```
+
+---
+
+## What You Need Summary
+
+<CardGroup cols={2}>
+  <Card title="Essential Hardware" icon="microchip">
+    - PS4 (firmware 9.00-12.50)
+    - Blu-ray burner
+    - Blank Blu-ray disc
+    - USB drive (for Lapse.iso)
+  </Card>
+  
+  <Card title="Essential Software" icon="laptop">
+    - Disc burning tool (ImgBurn/K3b/BD-SimpleBurn)
+    - BD-JB ISO files (Lapse.iso or RemoteJarLoader.iso)
+    - Homebrew payload (GoldHEN/ps4-hen)
+  </Card>
+  
+  <Card title="Network Requirements" icon="network-wired">
+    - Local network connection
+    - Python 3.x (for sending payloads)
+    - Port 9025 (RemoteJarLoader)
+    - Port 9020 (BinLoader)
+  </Card>
+  
+  <Card title="PS4 Configuration" icon="gear">
+    - HDCP enabled
+    - Automatic updates disabled
+    - Video pop-ups enabled
+    - Blu-ray playback activated
+  </Card>
+</CardGroup>
+
+---
+
+## Ready to Start?
+
+Once you have everything ready, head to the [Quickstart Guide](/quickstart) to run the exploit.
+
+<Warning>
+  Remember: Never update your PS4 firmware if you want to continue using BD-JB!
+</Warning>

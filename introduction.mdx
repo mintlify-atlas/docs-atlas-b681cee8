@@ -1,0 +1,64 @@
+---
+title: Introduction
+description: Overview of BD-JB exploit for PlayStation 4 firmware 9.00-12.50
+---
+
+# BD-JB for PlayStation 4
+
+BD-JB is a Blu-ray Disc Java (BD-J) exploit for PlayStation 4 consoles running firmware versions **9.00 through 12.50**. This exploit leverages the PS4's Blu-ray disc playback functionality to achieve native code execution and enable homebrew.
+
+<Note>
+  This exploit will **not** work on PlayStation 5. It is exclusively for PS4 consoles.
+</Note>
+
+## What is BD-JB?
+
+BD-JB uses the Blu-ray Disc Java (BD-J) environment built into the PS4's Blu-ray player to execute code. By burning a specially crafted ISO to a Blu-ray disc, you can run the exploit directly from the disc—no network connection required after initial setup.
+
+The exploit provides two main approaches:
+
+<CardGroup cols={2}>
+  <Card title="Lapse.iso" icon="disc">
+    Pre-built with the Lapse JAR payload. Automatically loads `payload.bin` from USB and enables BinLoader on port 9020.
+  </Card>
+  
+  <Card title="RemoteJarLoader.iso" icon="network-wired">
+    Accepts custom JAR payloads sent over the network via port 9025. More flexible for development and custom workflows.
+  </Card>
+</CardGroup>
+
+## Why BD-JB?
+
+- **Works on latest firmware**: Supports PS4 firmware up to 12.50
+- **No network required during exploit**: Once set up, the exploit runs entirely from disc
+- **Persistent**: Works every time you insert the disc (until firmware update)
+- **Flexible**: Choose between automatic USB payload loading or custom JAR payloads over network
+
+## Firmware Compatibility
+
+BD-JB supports the following firmware versions:
+
+| Feature | Firmware Support |
+|---------|------------------|
+| **Lapse Exploit** | 9.00 - 12.02 only |
+| **RemoteJarLoader** | 9.00 - 12.50 |
+
+<Warning>
+  The Lapse exploit (automatic USB payload loading) only works on firmware **9.00 to 12.02**. Firmware 12.50 requires using RemoteJarLoader with a custom JAR payload.
+</Warning>
+
+## Credits
+
+This exploit was made possible by the contributions of several talented developers:
+
+- **[TheFlow](https://github.com/theofficialflow)** — BD-JB documentation & native code execution sources
+- **[hammer-83](https://github.com/hammer-83)** — PS5 Remote JAR Loader reference
+- **[john-tornblom](https://github.com/john-tornblom)** — [BDJ-SDK](https://github.com/john-tornblom/bdj-sdk) and [ps4-payload-sdk](https://github.com/ps4-payload-dev/sdk) used for compilation
+- **[shahrilnet, null_ptr](https://github.com/shahrilnet/remote_lua_loader)** — Lua Lapse implementation, without which BD-J Lapse was impossible
+- **Gezine** — BD-JB implementation and release
+
+## Getting Started
+
+Ready to run BD-JB on your PS4? Head to the [Quickstart Guide](/quickstart) to get started.
+
+Before you begin, make sure you review the [Requirements](/requirements) to ensure you have everything you need.

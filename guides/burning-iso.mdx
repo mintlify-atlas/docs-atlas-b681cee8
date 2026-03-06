@@ -1,0 +1,272 @@
+---
+title: 'Burning Blu-ray Discs'
+description: 'How to burn Lapse.iso and RemoteJarLoader.iso to Blu-ray discs on Windows, Linux, and macOS'
+---
+
+## Overview
+
+Both Lapse.iso and RemoteJarLoader.iso must be burned to a Blu-ray disc before they can be used on your PlayStation 4. The burning process varies by operating system.
+
+<Warning>
+  Use **Blu-ray discs** (BD-R or BD-RE), not DVDs. The PS4 requires Blu-ray media for BD-J applications.
+</Warning>
+
+## Prerequisites
+
+- A Blu-ray disc burner (internal or external)
+- Blank BD-R or BD-RE discs
+- The ISO file you want to burn (Lapse.iso or RemoteJarLoader.iso)
+
+<Note>
+  BD-RE (rewritable) discs are recommended for testing, as they can be erased and reused. BD-R discs are write-once.
+</Note>
+
+## Platform-Specific Instructions
+
+<Tabs>
+  <Tab title="Windows">
+    ### Windows: Using ImgBurn
+
+    **ImgBurn** is the recommended tool for burning ISO files on Windows.
+
+    <Steps>
+      <Step title="Download ImgBurn">
+        Download ImgBurn from the official website: [https://www.imgburn.com](https://www.imgburn.com)
+        
+        Install the application following the setup wizard.
+      </Step>
+
+      <Step title="Launch ImgBurn">
+        Open ImgBurn and select **"Write image file to disc"** (or press Ctrl+W).
+      </Step>
+
+      <Step title="Select Your ISO">
+        Click the **Browse** button next to "Source" and select your ISO file:
+        - `Lapse.iso`
+        - `RemoteJarLoader.iso`
+      </Step>
+
+      <Step title="Insert Blank Disc">
+        Insert a blank BD-R or BD-RE disc into your Blu-ray burner.
+        
+        Wait for ImgBurn to recognize the disc.
+      </Step>
+
+      <Step title="Configure Burn Settings">
+        Recommended settings:
+        - **Write Speed**: Select a slower speed (4x or 6x) for better reliability
+        - **Verify**: Check "Verify" to ensure the disc burned correctly
+      </Step>
+
+      <Step title="Burn the Disc">
+        Click the **Write** button (large disc icon) to begin burning.
+        
+        Wait for the burn process to complete. ImgBurn will verify the disc if you enabled that option.
+      </Step>
+
+      <Step title="Finalize">
+        Once complete, eject the disc. Your Blu-ray disc is ready to use on your PS4.
+      </Step>
+    </Steps>
+
+    <Note>
+      ImgBurn may prompt you to install additional software during setup. Be careful to decline any bundled offers that are not related to ImgBurn itself.
+    </Note>
+  </Tab>
+
+  <Tab title="Linux">
+    ### Linux: Using K3b
+
+    **K3b** is a comprehensive disc burning application for Linux with full Blu-ray support.
+
+    <Steps>
+      <Step title="Install K3b">
+        Install K3b using your distribution's package manager:
+        
+        <CodeGroup>
+        ```bash Ubuntu/Debian
+        sudo apt install k3b
+        ```
+        
+        ```bash Fedora
+        sudo dnf install k3b
+        ```
+        
+        ```bash Arch Linux
+        sudo pacman -S k3b
+        ```
+        </CodeGroup>
+      </Step>
+
+      <Step title="Launch K3b">
+        Open K3b from your application menu or run:
+        
+        ```bash
+        k3b
+        ```
+      </Step>
+
+      <Step title="Start Burn Image">
+        From the menu, select:
+        - **Tools** → **Burn Image...**
+        
+        Or click the **Burn Image** button on the toolbar.
+      </Step>
+
+      <Step title="Select Your ISO">
+        Click **Browse** and navigate to your ISO file:
+        - `Lapse.iso`
+        - `RemoteJarLoader.iso`
+        
+        K3b will automatically detect the ISO format.
+      </Step>
+
+      <Step title="Insert Blank Disc">
+        Insert a blank BD-R or BD-RE disc into your Blu-ray burner.
+        
+        K3b will detect the disc type and capacity.
+      </Step>
+
+      <Step title="Configure Burn Settings">
+        Recommended settings:
+        - **Writing Speed**: Select 4x or 6x for reliability
+        - **Verify written data**: Enable this option
+        - **Simulation**: Disable (unless testing)
+      </Step>
+
+      <Step title="Burn the Disc">
+        Click **Start** to begin burning the ISO.
+        
+        K3b will show progress and verify the disc after burning.
+      </Step>
+
+      <Step title="Complete">
+        When finished, eject the disc. It's ready for your PS4.
+      </Step>
+    </Steps>
+
+    <Note>
+      K3b is part of the KDE project but works on any Linux desktop environment. You may need to install additional KDE dependencies.
+    </Note>
+
+    ### Alternative: Command Line
+
+    For advanced users, you can burn ISOs using `cdrecord` or `growisofs`:
+
+    ```bash
+    # Find your burner device
+    wodim --devices
+
+    # Burn the ISO (replace /dev/sr0 with your device)
+    growisofs -dvd-compat -Z /dev/sr0=Lapse.iso
+    ```
+  </Tab>
+
+  <Tab title="macOS">
+    ### macOS: Using BD-SimpleBurn
+
+    **BD-SimpleBurn** is a specialized tool for burning Blu-ray discs on macOS.
+
+    <Steps>
+      <Step title="Download BD-SimpleBurn">
+        Download BD-SimpleBurn from GitHub:
+        
+        [https://github.com/C4ndyF1sh/BD-SimpleBurn](https://github.com/C4ndyF1sh/BD-SimpleBurn)
+        
+        Download the latest release `.dmg` file.
+      </Step>
+
+      <Step title="Install the Application">
+        Open the `.dmg` file and drag BD-SimpleBurn to your Applications folder.
+        
+        <Warning>
+          You may need to allow the app in **System Settings** → **Privacy & Security** if macOS blocks it.
+        </Warning>
+      </Step>
+
+      <Step title="Launch BD-SimpleBurn">
+        Open BD-SimpleBurn from your Applications folder.
+        
+        Grant any necessary permissions when prompted.
+      </Step>
+
+      <Step title="Insert Blank Disc">
+        Insert a blank BD-R or BD-RE disc into your Blu-ray burner.
+        
+        Wait for macOS to recognize the disc.
+      </Step>
+
+      <Step title="Select Your ISO">
+        In BD-SimpleBurn:
+        - Click **Browse** or drag and drop your ISO file
+        - Select `Lapse.iso` or `RemoteJarLoader.iso`
+      </Step>
+
+      <Step title="Configure Settings">
+        Recommended settings:
+        - **Burn Speed**: Select 4x or 6x for reliability
+        - **Verify**: Enable disc verification
+      </Step>
+
+      <Step title="Burn the Disc">
+        Click **Burn** to start the burning process.
+        
+        BD-SimpleBurn will show progress and verify the disc after completion.
+      </Step>
+
+      <Step title="Finish">
+        Eject the disc when complete. Your Blu-ray is ready for the PS4.
+      </Step>
+    </Steps>
+
+    <Note>
+      External Blu-ray burners are more common on macOS, as many Macs don't have built-in optical drives. Ensure your burner is compatible with macOS.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Burn Settings Recommendations
+
+For optimal compatibility with PS4:
+
+- **Burn Speed**: 4x-6x (slower is more reliable)
+- **Verification**: Always enable to catch burn errors
+- **Disc Type**: BD-R for permanent, BD-RE for testing
+- **Format**: ISO9660/UDF (automatic for ISO files)
+
+## Troubleshooting
+
+### Burn Fails or Errors
+
+- Try a slower burn speed (2x or 4x)
+- Use a different brand of blank discs
+- Clean your burner's lens
+- Update your burner's firmware
+
+### PS4 Doesn't Recognize Disc
+
+- Verify the ISO burned correctly (use verification option)
+- Try burning at a slower speed
+- Ensure you're using BD-R/BD-RE, not DVD media
+- Clean the disc and PS4's disc reader
+
+### Disc Verification Fails
+
+- The burn may be corrupted; try again with a new disc
+- Reduce burn speed to 2x or 4x
+- Check that your ISO file isn't corrupted (verify checksum)
+
+## Disc Care
+
+- Handle discs by the edges only
+- Store in protective cases when not in use
+- Keep discs away from heat, moisture, and direct sunlight
+- Use a soft, lint-free cloth to clean if needed (wipe from center outward)
+
+## Next Steps
+
+After burning your disc:
+
+- [Use Lapse.iso](/guides/lapse-iso) for automatic payload loading
+- [Use RemoteJarLoader.iso](/guides/remotejarloader-iso) for network-based payloads
+- Set up [debug logging](/guides/logging) to troubleshoot any issues

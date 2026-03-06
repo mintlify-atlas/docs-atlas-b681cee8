@@ -1,0 +1,257 @@
+---
+title: 'Frequently Asked Questions'
+description: 'Common questions about BD-JB exploit for PlayStation 4'
+---
+
+## General Questions
+
+<Accordion title="Does this work on PS5?">
+  **No**, this exploit does not work on PS5.
+
+  BD-JB is specifically designed for PlayStation 4 consoles running firmware versions 9.00 through 12.50. The PS5 has different security measures and is not compatible with this exploit.
+
+  <Note>
+    This exploit was initially thought to be the same one reported by TheFlow that was patched in firmware 12.52, but TheFlow confirmed this is a different exploit.
+  </Note>
+</Accordion>
+
+<Accordion title="Which firmware versions are supported?">
+  BD-JB supports PlayStation 4 firmware versions **9.00 through 12.50**.
+
+  **Compatible versions:**
+  - 9.00 (minimum)
+  - 9.03, 9.04, 9.50, 9.51, 9.60
+  - 10.00, 10.01, 10.50, 10.70, 10.71
+  - 11.00, 11.02, 11.50, 11.52
+  - 12.00, 12.02, 12.50 (maximum)
+
+  <Warning>
+    Firmware **12.52 and above** are not supported. Do not update your PS4 beyond 12.50 if you want to use this exploit.
+  </Warning>
+
+  Learn more: [Firmware Compatibility](/requirements)
+</Accordion>
+
+<Accordion title="Do I need an internet connection?">
+  **Yes, but only for initial Blu-ray disc activation.**
+
+  If you've never used a Blu-ray disc on your PS4 before, you need to:
+  1. **Disable Automatic Updates first** (to prevent firmware upgrades)
+  2. Connect to the internet **once** to activate Blu-ray playback
+  3. After activation is complete, you can disconnect from the internet
+
+  <Note>
+    Once Blu-ray playback is activated, you do not need internet for the exploit to work. You can run BD-JB completely offline after the initial activation.
+  </Note>
+
+  **Internet is also useful for:**
+  - Sending JAR payloads to RemoteJarLoader (port 9025)
+  - Sending AIO fixes via network (port 9090)
+  - Viewing debug logs with RemoteLogger
+
+  However, the exploit itself can run entirely offline using Lapse.iso with a USB drive.
+</Accordion>
+
+<Accordion title="What about automatic updates? Should I disable them?">
+  **Yes, you must disable automatic updates immediately.**
+
+  If your PS4 automatically updates to firmware 12.52 or higher, the exploit will no longer work.
+
+  **To disable automatic updates:**
+  1. Go to Settings → System → Automatic Downloads
+  2. Uncheck "System Software Update Files"
+  3. Go to Settings → System Software Update
+  4. Disable automatic updates
+
+  <Warning>
+    This is especially critical before connecting to the internet for Blu-ray activation. Always disable automatic updates FIRST.
+  </Warning>
+
+  Learn more: [PS4 Setup](/requirements)
+</Accordion>
+
+<Accordion title="Can I use any USB drive?">
+  You can use most USB drives, but they must be formatted as **exFAT** or **FAT32**.
+
+  **Requirements:**
+  - Format: **exFAT** or **FAT32** (NTFS is not supported)
+  - Capacity: Any size works, but 4GB+ recommended
+  - Place `payload.bin` at the root of the drive (not in a folder)
+
+  **Tips:**
+  - USB 2.0 drives tend to be more reliable than USB 3.0
+  - Some USB 3.0 drives may work, but compatibility varies
+  - Use a high-quality USB drive from a reputable brand
+  - Avoid ultra-cheap or counterfeit USB drives
+
+  <Note>
+    Format your USB drive to exFAT for best compatibility. FAT32 also works but has a 4GB file size limit.
+  </Note>
+
+  Learn more: [USB Preparation](/quickstart)
+</Accordion>
+
+<Accordion title="What payloads work with BD-JB?">
+  BD-JB works with standard homebrew enabler payloads:
+
+  **Supported payloads:**
+  - **GoldHEN** — Most popular, feature-rich homebrew enabler
+  - **ps4-hen** — Alternative homebrew enabler
+
+  Both payloads enable:
+  - Running homebrew applications
+  - Loading game backups
+  - Installing PKG files
+  - Debug settings access
+  - FTP server
+  - BinLoader for additional payloads
+
+  **Where to place payload:**
+  - Rename your payload file to `payload.bin`
+  - Place at the root of your USB drive
+  - For Lapse.iso: Automatically loaded from USB → `/data/payload.bin`
+
+  <Note>
+    Always download payloads from trusted sources. Using the wrong payload or a corrupted file can cause the exploit to fail.
+  </Note>
+
+  Learn more: [Payload Selection](/quickstart)
+</Accordion>
+
+<Accordion title="How do I know if the exploit succeeded?">
+  You'll see on-screen notifications if the exploit is working correctly.
+
+  **Success indicators:**
+  1. **Notification appears** — Confirms BD-J app is running
+  2. **"Payload loaded" notification** — `payload.bin` was found and loaded
+  3. **GoldHEN/HEN initialization notification** — Homebrew enabler is active
+  4. **BinLoader listening notification** — Ready to receive additional payloads
+
+  <Note>
+    Make sure to turn off **"Disable Pop-ups while playing video"** in notification settings, or you won't see these notifications.
+  </Note>
+
+  **If notifications don't appear:**
+  - Check notification settings (see above)
+  - Verify your USB drive is properly formatted (exFAT or FAT32)
+  - Ensure `payload.bin` is at the root of USB drive
+  - Restart your PS4 completely before retrying
+
+  **Additional verification:**
+  - Check if debug settings are accessible (Settings → Debug Settings)
+  - Try connecting to PS4 FTP server (if your payload includes it)
+  - Use RemoteLogger to view BD-J app logs (port 18194)
+</Accordion>
+
+## ISO Types
+
+<Accordion title="What's the difference between Lapse.iso and RemoteJarLoader.iso?">
+  BD-JB includes two different ISO files for different use cases:
+
+  ### Lapse.iso
+  **Best for: Simple, automatic payload loading**
+  
+  - Contains built-in Lapse JAR payload
+  - Automatically loads `payload.bin` from USB drive
+  - Copies payload to `/data/payload.bin`
+  - BinLoader always listens on port **9020**
+  - No network setup required (unless sending additional payloads)
+  
+  **Use this if:** You want the simplest setup with automatic USB payload loading.
+
+  ### RemoteJarLoader.iso
+  **Best for: Advanced users, custom JAR payloads**
+  
+  - Allows sending custom JAR payloads via network (port **9025**)
+  - More flexible for development and testing
+  - Can send `Lapse.jar` to get the same behavior as Lapse.iso
+  - Requires network connection to send JAR payload
+  
+  **Use this if:** You want to test custom JAR payloads or need more flexibility.
+
+  | Feature | Lapse.iso | RemoteJarLoader.iso |
+  |---------|-----------|---------------------|
+  | USB payload loading | Automatic | Via Lapse.jar |
+  | Network required | No | Yes (port 9025) |
+  | BinLoader port | 9020 | Varies |
+  | Best for | Most users | Developers |
+
+  Learn more: [ISO Types Explained](/introduction)
+</Accordion>
+
+<Accordion title="Do I need to apply AIO fixes?">
+  It depends on which version of Lapse you're using:
+
+  ### Lapse 1.2 or later
+  **No manual fixes needed** — AIO fixes are already included in the ISO.
+
+  ### Lapse 1.0, 1.1, or 1.1b
+  **Yes** — You need to manually apply AIO fixes to resolve:
+  - Black screen issues in certain games
+  - Save data corruption problems
+
+  **How to apply AIO fixes (for old versions):**
+  1. Load `payload.bin` (GoldHEN or ps4-hen) from USB normally
+  2. Send `aiofix_network.elf` to HEN's BinLoader via network (port 9090)
+  3. Wait for "AIO patch completed" notification
+  4. Repeat every time you run the exploit (or convert to plugin for automatic loading)
+
+  <Warning>
+    Do not use any other AIO-related fixes or plugins alongside this solution — they may conflict.
+  </Warning>
+
+  Learn more: [AIO Fixes Guide](/guides/aio-fixes)
+</Accordion>
+
+## Troubleshooting
+
+<Accordion title="Why do I need to restart the PS4 instead of just reopening the app?">
+  **Stability and reliability.**
+
+  The BD-J exploit modifies system memory in ways that can leave the system in an unstable state if the exploit fails. Simply reopening the BD-J app without restarting can cause:
+  - Significantly reduced exploit success rate
+  - System instability
+  - Unexpected crashes
+  - Corrupted memory state
+
+  <Warning>
+    Do **not** simply reopen the BD-J app after a failed attempt — stability will drop. Always perform a full restart for optimal reliability.
+  </Warning>
+
+  **Best practice:**
+  1. If exploit fails, completely restart your PS4
+  2. Wait for the system to fully boot
+  3. Insert USB drive first
+  4. Then insert the Blu-ray disc
+  5. Run the exploit again
+
+  This ensures a clean memory state and maximizes your chances of success.
+</Accordion>
+
+<Accordion title="Can I use this exploit every time I turn on my PS4?">
+  **Yes**, BD-JB is a persistent exploit method.
+
+  You can run the exploit every time you power on your PS4. Once loaded:
+  - Homebrew enabler (GoldHEN/ps4-hen) remains active until shutdown/restart
+  - You can launch homebrew apps, backups, and use all exploit features
+  - When you power off or restart, you'll need to run the exploit again
+
+  **Typical workflow:**
+  1. Power on PS4
+  2. Insert USB drive (with `payload.bin`)
+  3. Insert BD-JB disc (Lapse.iso or RemoteJarLoader.iso)
+  4. Wait for exploit to load
+  5. Use homebrew features until next restart
+
+  <Note>
+    The exploit does not survive restarts. You'll need to run it again each time you power on your PS4.
+  </Note>
+</Accordion>
+
+## Still Have Questions?
+
+If your question isn't answered here:
+
+- Check [Common Issues](/troubleshooting/common-issues) for problem-solving guidance
+- Review the [Getting Started](/requirements) guides
+- Consult the [Step-by-Step Guide](/quickstart) for detailed instructions

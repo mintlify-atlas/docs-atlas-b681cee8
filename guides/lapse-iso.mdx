@@ -1,0 +1,126 @@
+---
+title: 'Lapse.iso Usage'
+description: 'Learn how to use Lapse.iso to exploit your PlayStation 4'
+---
+
+## What is Lapse.iso?
+
+Lapse.iso is a Blu-ray disc image with a built-in Lapse JAR payload. When burned to a disc and inserted into your PS4, it automatically loads your homebrew enabler payload from USB and sets up the exploit environment.
+
+### How It Works
+
+Lapse.iso performs the following actions:
+
+- Automatically loads `payload.bin` from your USB drive
+- Copies the payload to `/data/payload.bin` on the PS4 internal storage
+- Starts BinLoader listening on port **9020** (even if payload.bin is not found)
+
+<Note>
+  Lapse.iso is designed for firmware versions **9.00 – 12.02**. It will not work on PS5.
+</Note>
+
+## Complete Workflow
+
+<Steps>
+  <Step title="Prepare Your USB Drive">
+    Format your USB drive as **exFAT** or **FAT32**.
+    
+    Place your homebrew enabler payload (e.g., GoldHEN or ps4-hen) at the root of the USB drive and rename it to `payload.bin`.
+  </Step>
+
+  <Step title="Configure PS4 Settings">
+    Before running the exploit, configure these settings on your PS4:
+    
+    - **Enable HDCP** in Settings (required for Blu-ray playback)
+    - Turn off **"Disable Pop-ups while playing video"** in notification settings to receive notifications
+    
+    <Warning>
+      If Blu-ray playback is not yet activated (first time using a Blu-ray disc):
+      - **Disable Automatic Updates** first to avoid firmware upgrades
+      - Connect to the internet once to activate Blu-ray playback
+    </Warning>
+  </Step>
+
+  <Step title="Burn the ISO to Disc">
+    Burn Lapse.iso to a Blu-ray disc using the appropriate tool for your platform. See [Burning Blu-ray Discs](/guides/burning-iso) for detailed instructions.
+  </Step>
+
+  <Step title="Insert USB First">
+    Insert your prepared USB drive into the PS4.
+  </Step>
+
+  <Step title="Insert the Blu-ray Disc">
+    Insert the burned Lapse.iso disc into your PS4.
+    
+    The PS4 will begin reading the disc and loading the BD-J application.
+  </Step>
+
+  <Step title="Wait for Payload Delivery">
+    The exploit will automatically:
+    
+    - Load `payload.bin` from your USB drive
+    - Copy it to `/data/payload.bin`
+    - Execute your homebrew enabler
+    
+    You should see notifications confirming successful payload loading.
+  </Step>
+
+  <Step title="If Exploit Fails">
+    If the exploit doesn't work:
+    
+    - **Restart the PS4** completely before retrying
+    - Do **not** simply reopen the BD-J app — stability will drop significantly
+  </Step>
+</Steps>
+
+## What Happens During Exploit
+
+When you insert the Lapse.iso disc, the PS4's Blu-ray Java (BD-J) environment loads the embedded Lapse JAR payload. This payload:
+
+1. Searches for `payload.bin` on your USB drive
+2. Reads the payload into memory
+3. Copies it to the PS4's `/data/` directory for persistence
+4. Triggers the exploit chain to gain code execution
+5. Launches your homebrew enabler (GoldHEN, ps4-hen, etc.)
+6. Starts BinLoader on port 9020 for additional payloads
+
+<Note>
+  The BD-J environment provides a bridge between the restricted Blu-ray application context and native PS4 code execution through carefully crafted exploit primitives.
+</Note>
+
+## Additional Features
+
+### BinLoader Port
+
+After the initial payload loads, BinLoader remains active on port **9020**. You can send additional `.bin` payloads to this port using network tools.
+
+### USB Fallback
+
+If the USB drive is not plugged in during exploit execution, Lapse will attempt to load from `/data/payload.bin` if it exists from a previous run.
+
+## Comparison with RemoteJarLoader
+
+Lapse.iso is ideal for users who want a simple, automated exploit experience. If you need to:
+
+- Send custom JAR payloads over the network
+- Test your own BD-J applications
+- Have more control over the exploit process
+
+Consider using [RemoteJarLoader.iso](/guides/remotejarloader-iso) instead.
+
+## Technical Details
+
+For developers and security researchers interested in the technical implementation of the BD-J exploit chain, native code execution, and payload loading mechanisms, refer to the [Technical Reference](/technical/overview).
+
+## Troubleshooting
+
+- **No notification appears**: Ensure "Disable Pop-ups while playing video" is turned OFF
+- **Exploit doesn't trigger**: Restart the PS4 completely and try again
+- **USB not detected**: Verify the drive is formatted as exFAT or FAT32
+- **Payload doesn't load**: Check that your payload is named exactly `payload.bin`
+
+## Next Steps
+
+- Learn about [AIO Fixes](/guides/aio-fixes) to resolve black screen and save corruption issues
+- Enable [debug logging](/guides/logging) to troubleshoot exploit issues
+- Explore [RemoteJarLoader](/guides/remotejarloader-iso) for advanced usage

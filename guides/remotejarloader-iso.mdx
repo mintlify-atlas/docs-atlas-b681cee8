@@ -1,0 +1,193 @@
+---
+title: 'RemoteJarLoader.iso Usage'
+description: 'Send custom JAR payloads to your PS4 over the network'
+---
+
+## What is RemoteJarLoader.iso?
+
+RemoteJarLoader.iso is a Blu-ray disc image that allows you to send custom JAR payloads to your PS4 over the network. Unlike Lapse.iso which has the payload built-in, RemoteJarLoader waits for you to send a JAR file via port **9025**.
+
+### When to Use RemoteJarLoader
+
+Choose RemoteJarLoader over Lapse.iso when you:
+
+- Want to test custom BD-J applications
+- Need to send different JAR payloads without burning new discs
+- Are developing your own exploits or homebrew
+- Want more control over the exploit process
+
+<Note>
+  You can send **Lapse.jar** to RemoteJarLoader.iso to get the same behavior as using Lapse.iso directly.
+</Note>
+
+## How It Works
+
+1. Burn RemoteJarLoader.iso to a Blu-ray disc
+2. Insert the disc into your PS4
+3. The BD-J application starts and listens on port **9025**
+4. Send your JAR payload from your computer using the payload sender script
+5. The PS4 receives and executes your JAR payload
+
+## Setup and Usage
+
+<Steps>
+  <Step title="Burn RemoteJarLoader.iso">
+    Burn the RemoteJarLoader.iso to a Blu-ray disc. See [Burning Blu-ray Discs](/guides/burning-iso) for platform-specific instructions.
+  </Step>
+
+  <Step title="Configure PS4 Settings">
+    - **Enable HDCP** in Settings (required for Blu-ray playback)
+    - Turn off **"Disable Pop-ups while playing video"** in notification settings
+    - Connect your PS4 to your local network
+    - Note your PS4's IP address (Settings → Network → View Connection Status)
+  </Step>
+
+  <Step title="Prepare USB Drive (if using Lapse.jar)">
+    If you're sending Lapse.jar for automatic payload loading:
+    
+    - Format USB as **exFAT** or **FAT32**
+    - Place your homebrew enabler at the root as `payload.bin`
+    - Insert the USB into your PS4
+  </Step>
+
+  <Step title="Insert the Disc">
+    Insert the RemoteJarLoader disc into your PS4. The BD-J application will start and begin listening on port **9025**.
+  </Step>
+
+  <Step title="Send Your JAR Payload">
+    From your computer, use the payload sender script to transmit your JAR file to the PS4.
+  </Step>
+</Steps>
+
+## Sending JAR Payloads
+
+### Using payload_sender.py
+
+The BD-JB project includes a Python script for sending JAR payloads over the network.
+
+<CodeGroup>
+```python payload_sender.py
+import socket
+
+def send_jar(jar_path, host, port=9025):
+    with open(jar_path, 'rb') as f:
+        data = f.read()
+    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((host, port))
+    sock.sendall(data)
+    sock.close()
+    print(f"Sent {len(data)} bytes to {host}:{port}")
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 2:
+        host = sys.argv[2]
+        port = int(sys.argv[3]) if len(sys.argv) > 3 else 9025
+        send_jar(sys.argv[1], host, port)
+    else:
+        print("Usage: python payload_sender.py <file> <host> [port]")
+        print("Examples:")
+        print("  python payload_sender.py helloworld.jar 192.168.1.100")
+        print("  python payload_sender.py payload.bin 192.168.1.100 9020")
+```
+</CodeGroup>
+
+### Usage Examples
+
+<CodeGroup>
+```bash Send Lapse.jar
+python payload_sender.py Lapse.jar 192.168.1.100
+```
+
+```bash Send Custom JAR
+python payload_sender.py myexploit.jar 192.168.1.100
+```
+
+```bash Send to Custom Port
+python payload_sender.py payload.jar 192.168.1.100 9025
+```
+
+```bash Send Binary Payload to BinLoader
+python payload_sender.py homebrew.bin 192.168.1.100 9020
+```
+</CodeGroup>
+
+### Script Parameters
+
+- `<file>`: Path to the JAR file (or .bin payload) to send
+- `<host>`: IP address of your PS4
+- `[port]`: Port number (default: 9025 for JAR, 9020 for BinLoader)
+
+## Network Ports
+
+RemoteJarLoader uses specific ports for different payload types:
+
+| Port | Purpose |
+|------|----------|
+| **9025** | JAR payload receiver (RemoteJarLoader) |
+| **9020** | BinLoader (for .bin payloads after exploit) |
+| **18194** | RemoteLogger (optional debug logging) |
+
+## Sending Lapse.jar
+
+To get the same behavior as Lapse.iso while using RemoteJarLoader:
+
+```bash
+python payload_sender.py Lapse.jar 192.168.1.100
+```
+
+This will:
+- Load `payload.bin` from your USB drive
+- Copy it to `/data/payload.bin`
+- Start BinLoader on port 9020
+
+## Advanced Usage
+
+### Developing Custom Payloads
+
+RemoteJarLoader is perfect for BD-J development. You can:
+
+1. Write your BD-J application in Java
+2. Compile it to a JAR file
+3. Send it to your PS4 for testing
+4. Iterate without burning new discs
+
+<Note>
+  Use [john-tornblom's BDJ-SDK](https://github.com/john-tornblom/bdj-sdk) for compiling BD-J applications. Required files (`rt.jar` and `bdjstack.jar`) are located at `/system_ex/app/NPXS20113` on the PS4.
+</Note>
+
+### Sending Binary Payloads
+
+After the initial JAR payload runs and starts BinLoader, you can send `.bin` payloads:
+
+```bash
+python payload_sender.py goldhen.bin 192.168.1.100 9020
+```
+
+## Troubleshooting
+
+### Connection Refused
+
+- Verify your PS4's IP address is correct
+- Ensure the RemoteJarLoader disc is inserted and running
+- Check that your computer and PS4 are on the same network
+- Disable any firewalls blocking port 9025
+
+### JAR Not Executing
+
+- Verify the JAR file is not corrupted
+- Check that the JAR is compiled for the BD-J environment
+- Enable [debug logging](/guides/logging) to see detailed error messages
+
+### Exploit Fails After JAR Sent
+
+- Restart the PS4 completely before retrying
+- Do not simply reopen the BD-J application
+- Ensure your USB drive is inserted if using Lapse.jar
+
+## Next Steps
+
+- Set up [debug logging](/guides/logging) to monitor exploit execution
+- Apply [AIO fixes](/guides/aio-fixes) for game compatibility
+- Learn about [Lapse.iso](/guides/lapse-iso) for simpler automated usage

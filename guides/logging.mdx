@@ -1,0 +1,438 @@
+---
+title: 'Debug Logging'
+description: 'Use log_client.py to capture debug output from BD-J applications'
+---
+
+## Overview
+
+The BD-JB exploit includes a remote logging system that sends debug output from the PS4's BD-J application to your computer over the network. This is invaluable for:
+
+- Troubleshooting exploit failures
+- Debugging custom JAR payloads
+- Understanding the exploit execution flow
+- Identifying compatibility issues
+
+## How Remote Logging Works
+
+The BD-J application on your PS4 includes **RemoteLogger**, which:
+
+1. Captures debug messages, errors, and status updates
+2. Sends them over the network via UDP
+3. Listens on port **18194** for log client connections
+
+You run `log_client.py` on your computer to receive and display these messages in real-time.
+
+## Setting Up Logging
+
+<Steps>
+  <Step title="Ensure Network Connectivity">
+    Make sure your PS4 and computer are on the same local network.
+    
+    Note your PS4's IP address from:
+    - Settings → Network → View Connection Status
+  </Step>
+
+  <Step title="Start the Log Client">
+    On your computer, run the log client **before** launching the BD-J application:
+    
+    ```bash
+    python log_client.py 192.168.1.100
+    ```
+    
+    Replace `192.168.1.100` with your PS4's IP address.
+  </Step>
+
+  <Step title="Insert the Disc">
+    Insert your Lapse.iso or RemoteJarLoader.iso disc into the PS4.
+    
+    The BD-J application will start and begin sending logs.
+  </Step>
+
+  <Step title="Monitor Output">
+    Watch your terminal for debug messages. You'll see:
+    - Exploit initialization
+    - Payload loading status
+    - Error messages (if any)
+    - Execution flow details
+  </Step>
+</Steps>
+
+## Using log_client.py
+
+### Basic Usage
+
+```bash
+python log_client.py <server_host> [server_port]
+```
+
+### Parameters
+
+- `<server_host>` — **Required**: Your PS4's IP address
+- `[server_port]` — Optional: Port number (default: 18194)
+
+### Examples
+
+<CodeGroup>
+```bash Default Port
+python log_client.py 192.168.1.100
+```
+
+```bash Custom Port
+python log_client.py 192.168.1.100 18194
+```
+
+```bash Different Network
+python log_client.py 10.0.0.50
+```
+</CodeGroup>
+
+## Script Source Code
+
+The `log_client.py` script is included in the BD-JB source code:
+
+<CodeGroup>
+```python log_client.py
+import socket
+import sys
+import time
+import threading
+
+class LogClient:
+    def __init__(self, server_host, server_port=18194):
+        self.server_host = server_host
+        self.server_port = server_port
+        self.socket = None
+        self.running = False
+        
+        # Heartbeat configuration
+        self.heartbeat_timeout = 5
+        self.last_heartbeat = 0
+        self.heartbeat_lock = threading.Lock()
+
+    def connect(self, retry_delay=1, max_retries=None):
+        """
+        Connect to the log server with retry logic.
+        
+        Args:
+            retry_delay: Seconds to wait between retry attempts
+            max_retries: Maximum number of retries (None for infinite)
+        """
+        attempt = 0
+        
+        while True:
+            attempt += 1
+            try:
+                self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.socket.settimeout(3.0)  # Timeout for server response
+                
+                register_msg = "REGISTER"
+                self.socket.sendto(register_msg.encode('utf-8'), (self.server_host, self.server_port))
+                
+                # Wait for server response (cached messages or any response)
+                try:
+                    data, addr = self.socket.recvfrom(4096)
+                    print("=" * 50)
+                    
+                    # Process the first message we received
+                    message = data.decode('utf-8')
+                    sys.stdout.write(message)
+                    sys.stdout.flush()
+                    
+                    self.socket.settimeout(1.0)  # Reset to normal timeout for listening
+                    self.running = True
+                    
+                    # Initialize heartbeat tracking
+                    with self.heartbeat_lock:
+                        self.last_heartbeat = time.time()
+                    
+                    return True
+                    
+                except socket.timeout:
+                    # No response from server - server not available
+                    raise Exception("No response from server")
+                
+            except Exception as e:
+                if self.socket:
+                    self.socket.close()
+                    self.socket = None
+                
+                if attempt == 1:
+                    print("Waiting server to show up...")
+                
+                # Check if we should stop retrying
+                if max_retries is not None and attempt >= max_retries:
+                    print("Maximum retry attempts reached. Giving up.")
+                    return False
+                try:
+                    time.sleep(retry_delay)
+                except KeyboardInterrupt:
+                    print("\nConnection retry interrupted by user")
+                    return False
+
+    def send_heartbeat_ack(self):
+        """Send heartbeat acknowledgment to server"""
+        try:
+            if self.socket and self.running:
+                ack_msg = "HEARTBEAT_ACK"
+                self.socket.sendto(ack_msg.encode('utf-8'), (self.server_host, self.server_port))
+        except Exception as e:
+            # If we can't send heartbeat ack, we'll detect this in the main loop
+            pass
+
+    def is_server_alive(self):
+        """Check if we've received a heartbeat from server recently"""
+        with self.heartbeat_lock:
+            return (time.time() - self.last_heartbeat) < self.heartbeat_timeout
+
+    def listen(self):
+        buffer_size = 4096
+        message_buffer = ""  # Buffer to assemble chunked messages
+        
+        while self.running:
+            try:
+                # Check if server is still alive (heartbeat check)
+                if not self.is_server_alive():
+                    print("=" * 50)
+                    print("Server heartbeat timeout, attempting to reconnect...")
+                    raise Exception("Server heartbeat timeout")
+                
+                # Receive message
+                data, addr = self.socket.recvfrom(buffer_size)
+                message = data.decode('utf-8').strip()
+                
+                # Handle heartbeat messages
+                if message == "HEARTBEAT":
+                    with self.heartbeat_lock:
+                        self.last_heartbeat = time.time()
+                    self.send_heartbeat_ack()
+                    continue
+                
+                # Handle end-of-message marker for chunked messages
+                if message == "<<EOM>>":
+                    # Complete message assembled, print it
+                    if message_buffer:
+                        sys.stdout.write(message_buffer)
+                        sys.stdout.flush()
+                        message_buffer = ""
+                    continue
+                
+                # Handle regular messages (update heartbeat time for any server communication)
+                with self.heartbeat_lock:
+                    self.last_heartbeat = time.time()
+                
+                # Check if this might be a chunked message or a complete message
+                if len(data) >= 1024:
+                    # This might be a chunk of a larger message, buffer it
+                    message_buffer += message
+                else:
+                    # This is likely a complete message, print immediately
+                    if message_buffer:
+                        # We had buffered content, this completes it
+                        message_buffer += message
+                        sys.stdout.write(message_buffer)
+                        sys.stdout.flush()
+                        message_buffer = ""
+                    else:
+                        # Single complete message
+                        if not message.endswith('\n'):
+                            message += '\n'
+                        sys.stdout.write(message)
+                        sys.stdout.flush()
+                
+            except socket.timeout:
+                # Timeout is normal, continue listening but check heartbeat
+                continue
+            except Exception as e:
+                if self.running:
+                    print("Connection lost")
+                    
+                    # Try to reconnect
+                    if self.socket:
+                        self.socket.close()
+                        self.socket = None
+                    
+                    if not self.connect():
+                        print("Failed to reconnect. Exiting.")
+                        break
+
+    def disconnect(self):
+        self.running = False
+        if self.socket:
+            self.socket.close()
+        print("\nDisconnected from log server")
+
+def print_usage():
+    print("Usage: python log_client.py <server_host> [server_port]")
+    print("  server_host: IP address or hostname of the log server (required)")
+    print("  server_port: Port number (default: 18194)")
+    print("")
+    print("Examples:")
+    print("  python log_client.py 192.168.1.100")
+    print("  python log_client.py 192.168.1.100 18194")
+
+def main():
+    # Check if server_host is provided
+    if len(sys.argv) < 2:
+        print("Error: server_host is required")
+        print_usage()
+        sys.exit(1)
+    
+    # Parse command line arguments
+    server_host = sys.argv[1]
+    server_port = 18194
+    
+    if len(sys.argv) > 2:
+        try:
+            server_port = int(sys.argv[2])
+        except ValueError:
+            print("Error: server_port must be a valid integer")
+            print_usage()
+            sys.exit(1)
+    
+    # Create and connect client
+    client = LogClient(server_host, server_port)
+    
+    if not client.connect():
+        sys.exit(1)
+    
+    try:
+        # Listen for log messages
+        client.listen()
+    except KeyboardInterrupt:
+        print("\nReceived Ctrl+C, shutting down...")
+    finally:
+        client.disconnect()
+
+if __name__ == "__main__":
+    main()
+```
+</CodeGroup>
+
+## Understanding the Output
+
+### Connection Messages
+
+When you start the log client:
+
+```
+Waiting server to show up...
+==================================================
+```
+
+The client waits for the PS4's BD-J application to start transmitting.
+
+### Log Message Types
+
+You'll see various types of messages:
+
+- **Initialization**: BD-J application startup
+- **Payload Status**: JAR loading, payload.bin detection
+- **Exploit Progress**: Native code execution stages
+- **Errors**: Exception traces, failure reasons
+- **Success**: Confirmation of successful exploit execution
+
+### Heartbeat System
+
+The log client includes automatic heartbeat monitoring:
+
+- Sends `HEARTBEAT_ACK` in response to server heartbeats
+- Detects server disconnection after 5 seconds of silence
+- Automatically attempts to reconnect
+
+## When to Use Logging
+
+### Troubleshooting Failures
+
+If the exploit doesn't work:
+
+1. Start the log client
+2. Run the exploit
+3. Check the logs for error messages
+4. Identify the failure point
+
+### Developing Custom Payloads
+
+If you're creating your own JAR payloads:
+
+- Add `RemoteLogger` calls to your Java code
+- Send debug messages at key execution points
+- Monitor output while testing
+
+### Understanding Exploit Flow
+
+For educational purposes:
+
+- See the sequence of exploit stages
+- Learn how BD-J applications work
+- Understand native code execution techniques
+
+## Network Ports Reference
+
+| Port | Purpose |
+|------|----------|
+| **18194** | RemoteLogger (debug logging) |
+| 9025 | JAR payload receiver (RemoteJarLoader) |
+| 9020 | BinLoader (.bin and .elf payloads) |
+
+## Troubleshooting
+
+### "Waiting server to show up..." Forever
+
+- Verify your PS4's IP address is correct
+- Ensure the BD-J application is running (disc inserted)
+- Check that your computer and PS4 are on the same network
+- Disable any firewalls blocking port 18194
+
+### Connection Drops Immediately
+
+- The BD-J application may have crashed
+- Check that HDCP is enabled on your PS4
+- Restart the PS4 and try again
+
+### No Messages Appear
+
+- The BD-J application may not have logging enabled
+- Verify you're using an official BD-JB ISO
+- Try inserting the disc after starting the log client
+
+### Gibberish or Corrupted Output
+
+- Network packet loss or corruption
+- Try moving your computer closer to the PS4
+- Use a wired Ethernet connection instead of Wi-Fi
+
+## Advanced Usage
+
+### Saving Logs to File
+
+Redirect output to a file for later analysis:
+
+```bash
+python log_client.py 192.168.1.100 > exploit_log.txt
+```
+
+### Custom Port
+
+If you've modified the BD-J application to use a different port:
+
+```bash
+python log_client.py 192.168.1.100 5000
+```
+
+### Multiple Sessions
+
+You can run multiple log clients simultaneously if you're testing multiple PS4 consoles:
+
+```bash
+# Terminal 1
+python log_client.py 192.168.1.100
+
+# Terminal 2
+python log_client.py 192.168.1.101
+```
+
+## Next Steps
+
+- Return to [Lapse.iso usage](/guides/lapse-iso) for the complete exploit guide
+- Learn about [RemoteJarLoader](/guides/remotejarloader-iso) for network payloads
+- Apply [AIO fixes](/guides/aio-fixes) for game compatibility

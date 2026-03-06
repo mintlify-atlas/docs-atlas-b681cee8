@@ -1,0 +1,198 @@
+---
+title: 'AIO Fixes'
+description: 'Resolve black screen and save data corruption issues with AIO fixes'
+---
+
+## What Are AIO Fixes?
+
+AIO (All-In-One) fixes are patches that resolve two critical issues in certain PS4 games when running homebrew:
+
+1. **Black screen on game launch** — Some games fail to display video output
+2. **Save data corruption** — Game saves may become corrupted or fail to load
+
+These fixes patch the PS4's system libraries to restore compatibility with affected games.
+
+<Note>
+  AIO fixes are **only needed for Lapse versions 1.0, 1.1, and 1.1b**. Lapse 1.2 and later versions include these fixes in the ISO by default.
+</Note>
+
+## Which Versions Need AIO Fixes?
+
+| Lapse Version | Requires AIO Fixes? |
+|---------------|---------------------|
+| 1.0 | Yes |
+| 1.1 | Yes |
+| 1.1b | Yes |
+| **1.2+** | **No** (fixes included) |
+
+<Warning>
+  Do **not** use any other AIO-related fixes or plugins with this implementation. Using multiple AIO solutions simultaneously can cause conflicts.
+</Warning>
+
+## How AIO Fixes Work
+
+The AIO fix is delivered as a network payload (`aiofix_network.elf`) that you send to BinLoader after your homebrew enabler (GoldHEN or ps4-hen) is loaded. The fix:
+
+- Patches system libraries in memory
+- Resolves graphics rendering issues
+- Fixes save data handling problems
+- Remains active until the PS4 is powered off
+
+## Installation Process
+
+<Steps>
+  <Step title="Load Initial Payload">
+    Run the Lapse exploit normally to load your `payload.bin` (GoldHEN or ps4-hen) from USB.
+    
+    Wait for the homebrew enabler to initialize completely. You should see confirmation notifications.
+  </Step>
+
+  <Step title="Send AIO Fix Payload">
+    After HEN is initialized, send the AIO fix payload to BinLoader using the network:
+    
+    ```bash
+    python payload_sender.py aiofix_network.elf 192.168.1.100 9020
+    ```
+    
+    Replace `192.168.1.100` with your PS4's IP address.
+  </Step>
+
+  <Step title="Wait for Confirmation">
+    You will receive an **"AIO patch completed"** notification on your PS4.
+    
+    The fix is now active and games should work properly.
+  </Step>
+
+  <Step title="Launch Your Game">
+    Start the game that was previously experiencing black screen or save corruption issues.
+    
+    The game should now run normally with working saves.
+  </Step>
+</Steps>
+
+## Important Notes
+
+### Reapply After Each Reboot
+
+The AIO fix is **not persistent** across reboots. You must:
+
+- Send `aiofix_network.elf` every time you run the Lapse exploit
+- Send it **after** your homebrew enabler loads, not before
+
+### Make It Automatic (Optional)
+
+To avoid sending the fix manually every time, you can:
+
+1. Convert `aiofix_network.elf` to a plugin
+2. Configure your homebrew enabler to load it automatically on startup
+
+Refer to your homebrew enabler's documentation for plugin installation instructions.
+
+## Sending the Payload
+
+### Using payload_sender.py
+
+The BD-JB project includes a payload sender script that works for both JAR and ELF payloads:
+
+```bash
+python payload_sender.py aiofix_network.elf 192.168.1.100 9020
+```
+
+### Parameters
+
+- `aiofix_network.elf` — The AIO fix payload file
+- `192.168.1.100` — Your PS4's IP address
+- `9020` — BinLoader port (do not change)
+
+### Port Information
+
+| Port | Purpose |
+|------|----------|
+| **9020** | BinLoader (for .bin and .elf payloads) |
+| 9025 | JAR payload receiver (RemoteJarLoader) |
+
+<Warning>
+  Send the AIO fix to port **9020** (BinLoader), not port 9025. Port 9025 is for JAR payloads only.
+</Warning>
+
+## Video Tutorial
+
+For a visual guide to installing AIO fixes, watch this tutorial by MODDED_WARFARE:
+
+[https://youtu.be/8LJ4ZFjr2Rw](https://youtu.be/8LJ4ZFjr2Rw)
+
+The video demonstrates:
+- Complete installation process
+- Common troubleshooting steps
+- How to verify the fix is working
+
+## Affected Games
+
+AIO fixes are particularly important for:
+
+- Games that show a black screen after the splash screen
+- Games that fail to save progress
+- Games that crash when loading saves
+- AAA titles with intensive graphics pipelines
+
+The exact list of affected games varies by firmware version and homebrew configuration.
+
+## Troubleshooting
+
+### No "AIO patch completed" Notification
+
+- Verify your homebrew enabler loaded successfully first
+- Check that you're sending to the correct IP address
+- Ensure you're using port 9020, not 9025
+- Try sending the payload again
+
+### Game Still Has Black Screen
+
+- Confirm you received the "AIO patch completed" notification
+- Restart the game after applying the fix
+- Some games may have additional compatibility issues unrelated to AIO
+
+### Save Corruption Persists
+
+- Ensure you're using Lapse 1.2+ (which includes fixes by default)
+- If using older versions, verify the AIO fix was applied successfully
+- Back up your saves regularly as a precaution
+
+### Connection Refused When Sending
+
+- Verify BinLoader is running (it starts after payload.bin loads)
+- Check your PS4's IP address is correct
+- Ensure your computer and PS4 are on the same network
+
+## Upgrading to Lapse 1.2+
+
+If you're tired of manually applying AIO fixes, consider upgrading to Lapse 1.2 or later:
+
+- AIO fixes are built into the ISO
+- No manual patching required
+- Simplified exploit process
+- Better game compatibility out of the box
+
+Simply burn the new ISO to a disc following the [burning instructions](/guides/burning-iso).
+
+## Compatibility with Other Fixes
+
+<Warning>
+  Do **not** combine this AIO implementation with:
+  - Other AIO plugins
+  - Alternative save fix patches
+  - Third-party compatibility layers
+  
+  Using multiple solutions will cause conflicts and instability.
+</Warning>
+
+The BD-JB AIO fix is designed to work exclusively with:
+- GoldHEN
+- ps4-hen
+- Other standard homebrew enablers
+
+## Next Steps
+
+- Learn about [debug logging](/guides/logging) to troubleshoot game issues
+- Return to [Lapse.iso usage](/guides/lapse-iso) for the complete exploit guide
+- Explore [RemoteJarLoader](/guides/remotejarloader-iso) for advanced payload delivery
