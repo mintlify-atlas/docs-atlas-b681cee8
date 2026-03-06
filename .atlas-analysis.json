@@ -1,0 +1,94 @@
+{
+  "projectType": "general",
+  "projectName": "BD-JB",
+  "projectDescription": "Blu-ray Disc Java exploit for PlayStation 4 firmware 9.00 to 12.50",
+  "theme": "aspen",
+  "primaryColor": "#e7e870",
+  "lightColor": "#a98964",
+  "darkColor": "#dbdadb",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "requirements"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/lapse-iso",
+              "guides/remotejarloader-iso",
+              "guides/burning-iso",
+              "guides/aio-fixes",
+              "guides/logging"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/common-issues",
+              "troubleshooting/faq"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Technical Reference",
+        "groups": [
+          {
+            "group": "Exploit Architecture",
+            "pages": [
+              "technical/overview",
+              "technical/stage-0-setup",
+              "technical/stage-1-double-free",
+              "technical/stage-2-kernel-leak",
+              "technical/stage-3-reqs1-double-free",
+              "technical/stage-4-kernel-rw"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/build-system",
+              "development/payload-development",
+              "development/api-reference"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "BD-J exploit for PS4 firmware 9.00-12.50",
+    "Lapse payload with automatic USB loading",
+    "RemoteJarLoader for custom JAR payloads",
+    "Kernel arbitrary read/write primitives",
+    "AIO race condition exploitation",
+    "Network logging support",
+    "BinLoader for homebrew enablers"
+  ],
+  "publicApiSurface": [
+    "Lapse.performSetup()",
+    "Lapse.executeStage1()",
+    "Lapse.executeStage2(int[])",
+    "Lapse.executeStage3(int)",
+    "Lapse.executeStage4(int[], long, long, int[], int[], long)",
+    "Helper.syscall(int, ...)",
+    "Helper.aioSubmitCmd(int, long, int, int, long)",
+    "Helper.createUdpSocket()",
+    "Helper.createTcpSocket()",
+    "Kernel.slowKread8(int, Buffer, int, Buffer, long)",
+    "Kernel.KernelRW.kread8(long)",
+    "Kernel.KernelRW.kwrite8(long, long)",
+    "BinLoader.loadPayload()",
+    "RemoteJarLoader.run()",
+    "log_client.py",
+    "payload_sender.py"
+  ]
+}
